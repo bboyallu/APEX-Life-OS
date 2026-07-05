@@ -13,7 +13,7 @@ Blueprint, including:
 """
 
 from apex.core import KnowledgeBase
-from apex.knowledge import KnowledgeVault
+from apex.knowledge import KnowledgeBridge, KnowledgeSignal, KnowledgeVault
 from apex.system import ApexSystem
 
 __version__ = "0.1.0"
@@ -21,6 +21,8 @@ __version__ = "0.1.0"
 __all__ = [
     "ApexSystem",
     "KnowledgeBase",
+    "KnowledgeBridge",
+    "KnowledgeSignal",
     "KnowledgeVault",
     "__version__",
 ]

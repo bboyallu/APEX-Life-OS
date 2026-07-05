@@ -14,6 +14,7 @@ from apex.core.types import (
     Severity,
     SymptomCluster,
 )
+from apex.knowledge.bridge import KnowledgeSignal
 from apex.mape.monitor import AnomalyAlert, MetricEvent
 
 
@@ -78,9 +79,16 @@ class Analyzer:
         self,
         events: list[MetricEvent],
         anomaly_alerts: list[AnomalyAlert] | None = None,
+        knowledge_signals: list[KnowledgeSignal] | None = None,
     ) -> AnalysisReport:
-        """Produce an ``AnalysisReport`` from a batch of telemetry events."""
+        """Produce an ``AnalysisReport`` from a batch of telemetry events.
+
+        ``knowledge_signals`` are directives extracted from the compiled
+        knowledge base (see :class:`apex.knowledge.bridge.KnowledgeBridge`);
+        each is treated as an evolution candidate for its target component.
+        """
         anomaly_alerts = anomaly_alerts or []
+        knowledge_signals = knowledge_signals or []
         clusters: list[SymptomCluster] = []
         evolution_targets: list[str] = []
 
@@ -131,6 +139,25 @@ class Analyzer:
             clusters.append(cluster)
             if alert.source not in evolution_targets:
                 evolution_targets.append(alert.source)
+
+        # --- Knowledge-derived clusters ---
+        for signal in knowledge_signals:
+            cluster = SymptomCluster(
+                signals=[
+                    f"knowledge={signal.description} "
+                    f"(source {signal.source or 'knowledge base'} "
+                    f"at {signal.timestamp.isoformat()})"
+                ],
+                probable_cause=(
+                    f"Knowledge-derived signal for {signal.target}: "
+                    f"{signal.description}"
+                ),
+                severity=signal.severity,
+                is_evolution_candidate=True,
+            )
+            clusters.append(cluster)
+            if signal.target not in evolution_targets:
+                evolution_targets.append(signal.target)
 
         # --- Compute overall severity ---
         overall = Severity.INFORMATIONAL

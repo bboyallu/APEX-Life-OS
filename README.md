@@ -230,6 +230,29 @@ print(path)
 
 `KnowledgeVault` can also be used standalone (`from apex import KnowledgeVault`).
 
+### Knowledge → Evolution bridge
+
+The `KnowledgeBridge` (`apex.knowledge.bridge`) closes the loop between the knowledge base and the self-evolution loop:
+
+```
+KnowledgeVault → Knowledge Signals → Analyzer → Planner → Executor
+    → AuditLedger → KnowledgeVault
+```
+
+Drop a `signal:` directive anywhere in your raw material:
+
+```
+signal: api_gateway :: retry storm is amplifying latency [degraded]
+```
+
+Then run a knowledge-informed cycle:
+
+```python
+report = system.run_knowledge_informed_cycle()
+```
+
+This (1) folds `raw/` into the wiki, (2) extracts new `signal:` directives as evolution candidates, (3) runs a full MAPE-K cycle under all existing governance (thresholds, approvals, dead-man switch), and (4) records the cycle outcome back into `raw/apex-evolution-history.md` and re-compiles the wiki — so APEX learns from its own evolution. Signals are deduplicated (persisted state), the evolution log can never re-trigger itself, and every step lands on the shared audit ledger: Learn → Understand → Propose improvement → Safely evolve → Record what changed → Learn from the result.
+
 ---
 
 ## Governance & Safety

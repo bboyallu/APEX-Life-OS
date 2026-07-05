@@ -23,6 +23,7 @@ from apex.core.types import (
 )
 from apex.governance.audit import AuditLedger
 from apex.governance.constraints import SafetyConstraintRegistry
+from apex.knowledge.bridge import KnowledgeBridge
 from apex.knowledge.vault import IngestReport, KnowledgeVault
 from apex.mape.analyzer import Analyzer, SignalRule
 from apex.mape.executor import Executor
@@ -137,6 +138,9 @@ class ApexSystem:
 
         # Personal knowledge base (raw/ → wiki/ → outputs/)
         self.knowledge_vault = KnowledgeVault(root=knowledge_root)
+
+        # Bridge: compiled knowledge ↔ self-evolution loop
+        self.knowledge_bridge = KnowledgeBridge(vault=self.knowledge_vault)
 
     # ------------------------------------------------------------------
     # Knowledge base helpers
@@ -260,6 +264,73 @@ class ApexSystem:
                 "cycle": self.mape_loop.cycle_count,
                 "severity": report.overall_severity.value,
                 "evolution_targets": report.proposed_evolution_targets,
+            },
+        )
+        return report
+
+    def run_knowledge_informed_cycle(
+        self,
+        anomaly_alerts: list[AnomalyAlert] | None = None,
+        baseline_metric: float | None = None,
+        post_metric: float | None = None,
+    ) -> AnalysisReport:
+        """Run one closed knowledge-to-evolution loop.
+
+        Learn → Understand → Propose improvement → Safely evolve →
+        Record what changed → Learn from the result:
+
+        1. Fold new raw material into the wiki (``process_knowledge``).
+        2. Extract new ``signal:`` directives from the compiled wiki.
+        3. Run a MAPE-K cycle with those knowledge signals as evolution
+           candidates (all existing governance — thresholds, approvals,
+           dead-man switch — still applies).
+        4. Record the cycle outcome back into ``raw/`` and re-fold it into
+           the wiki, so APEX learns from its own evolution.
+
+        Every step is appended to the shared audit ledger.
+        """
+        self.process_knowledge()
+
+        signals = self.knowledge_bridge.extract_signals()
+        if signals:
+            self.audit_ledger.append(
+                "knowledge_signals_extracted",
+                actor="knowledge_bridge",
+                payload={
+                    "count": len(signals),
+                    "targets": sorted({s.target for s in signals}),
+                },
+            )
+
+        report = self.mape_loop.run_cycle(
+            anomaly_alerts=anomaly_alerts,
+            baseline_metric=baseline_metric,
+            post_metric=post_metric,
+            knowledge_signals=signals,
+        )
+        self.audit_ledger.append(
+            "mape_cycle_complete",
+            actor="apex_system",
+            payload={
+                "cycle": self.mape_loop.cycle_count,
+                "severity": report.overall_severity.value,
+                "evolution_targets": report.proposed_evolution_targets,
+                "knowledge_signals": len(signals),
+            },
+        )
+
+        log_path = self.knowledge_bridge.record_cycle(
+            cycle=self.mape_loop.cycle_count,
+            report=report,
+            signals=signals,
+        )
+        self.process_knowledge()
+        self.audit_ledger.append(
+            "evolution_recorded_to_knowledge",
+            actor="knowledge_bridge",
+            payload={
+                "cycle": self.mape_loop.cycle_count,
+                "log": str(log_path),
             },
         )
         return report

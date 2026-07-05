@@ -12,6 +12,7 @@ from typing import Callable
 
 from apex.core.knowledge_base import KnowledgeBase
 from apex.core.types import AdaptationPlan, AnalysisReport
+from apex.knowledge.bridge import KnowledgeSignal
 from apex.mape.analyzer import Analyzer
 from apex.mape.executor import Executor
 from apex.mape.monitor import AnomalyAlert, Monitor
@@ -67,6 +68,7 @@ class MAPELoop:
         anomaly_alerts: list[AnomalyAlert] | None = None,
         baseline_metric: float | None = None,
         post_metric: float | None = None,
+        knowledge_signals: list[KnowledgeSignal] | None = None,
     ) -> AnalysisReport:
         """Execute one full MAPE-K cycle.
 
@@ -79,7 +81,7 @@ class MAPELoop:
         events = self._monitor.get_events()
 
         # A — Analyze
-        report = self._analyzer.analyze(events, anomaly_alerts)
+        report = self._analyzer.analyze(events, anomaly_alerts, knowledge_signals)
         self._last_report = report
 
         # P — Plan

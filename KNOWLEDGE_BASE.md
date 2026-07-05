@@ -60,9 +60,27 @@ When the human asks a question or requests a briefing, summary, or report:
 - Do not modify `wiki/` as part of answering a query unless the query also
   surfaces new organizational work.
 
+### 6. Evolution Signals (knowledge → self-evolution bridge)
+Raw material may contain actionable directives for the APEX self-evolution
+loop, one per line:
+
+```
+signal: <target-component> :: <description> [severity]
+```
+
+`severity` is optional (`informational`, `warning`, `degraded`, `critical`,
+`catastrophic`; default `warning`). When a knowledge-informed cycle runs
+(`ApexSystem.run_knowledge_informed_cycle()`), new signals compiled into the
+wiki are handed to the MAPE-K Analyzer as evolution candidates, and the
+cycle's outcome is appended to `raw/apex-evolution-history.md` so it is
+folded back into the wiki. Signals are deduplicated across runs, and the
+evolution-history article is never scanned for signals.
+
 ## Processing Rules
 
 1. **Never edit files in `raw/`.** Raw material is immutable input.
+   *Exception:* APEX itself appends cycle outcomes to
+   `raw/apex-evolution-history.md`; that file is owned by the system.
 2. **Never ask the human to organize anything.** Organization is the AI's job.
 3. **Idempotency.** Re-processing the same raw file must not duplicate
    content in the wiki; update the existing article instead.
