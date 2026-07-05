@@ -28,6 +28,11 @@ from apex.agent.sessions import SessionStore
 from apex.agent.skills import SkillStore
 from apex.agent.tools import build_default_tools
 from apex.core.types import ThresholdLevel
+from apex.memory.vaults import (
+    MemoryVaultStore,
+    make_vault_key,
+    render_memory_context,
+)
 from apex.system import ApexSystem
 
 #: Transport signature: (method, params) -> Telegram API result.
@@ -74,6 +79,7 @@ class TelegramGateway:
         client: LLMClient | None = None,
         api: ApiCall | None = None,
         allowed_chat_ids: set[int] | None = None,
+        vault_store: MemoryVaultStore | None = None,
     ) -> None:
         self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
         if api is None and not self.token:
@@ -88,7 +94,8 @@ class TelegramGateway:
         self.skills = SkillStore(audit_ledger=self.system.audit_ledger)
         self.client = client or LLMClient(self.config)
         self.allowed_chat_ids = allowed_chat_ids or _allowed_ids_from_env()
-        self._loops: dict[int, AgentLoop] = {}
+        self.vaults = vault_store or MemoryVaultStore()
+        self._loops: dict[str, AgentLoop] = {}
         self._offset = 0
         self._approvals: dict[str, queue.Queue] = {}
         self._approval_seq = 0
@@ -97,15 +104,16 @@ class TelegramGateway:
 
     # ------------------------------------------------------------------
 
-    def _loop_for(self, chat_id: int) -> AgentLoop:
-        if chat_id not in self._loops:
+    def _loop_for(self, chat_id: int, vault_key: str) -> AgentLoop:
+        """One agent loop per memory vault — vault isolation extends to loops."""
+        if vault_key not in self._loops:
             tools = build_default_tools(
                 self.system,
                 approval_callback=self._request_approval,
                 skill_store=self.skills,
                 session_store=self.sessions,
             )
-            self._loops[chat_id] = AgentLoop(
+            self._loops[vault_key] = AgentLoop(
                 system=self.system,
                 config=self.config,
                 client=self.client,
@@ -114,8 +122,13 @@ class TelegramGateway:
                 channel=f"telegram:{chat_id}",
                 knowledge_root=self.knowledge_root,
                 skill_store=self.skills,
+                # Memory context is loaded strictly by vault_key — set here
+                # at the integration layer, never from user message content.
+                context_provider=lambda: render_memory_context(
+                    self.vaults.load(vault_key)
+                ),
             )
-        return self._loops[chat_id]
+        return self._loops[vault_key]
 
     def _request_approval(
         self, name: str, summary: str, level: ThresholdLevel
@@ -237,9 +250,11 @@ class TelegramGateway:
         if not text:
             return None
 
-        loop = self._loop_for(chat_id)
+        user_id = int(message.get("from", {}).get("id", 0)) or chat_id
+        vault_key = make_vault_key("telegram", user_id)
+        loop = self._loop_for(chat_id, vault_key)
         if text.startswith("/"):
-            reply = self._handle_command(loop, text)
+            reply = self._handle_command(loop, text, vault_key)
         else:
             self._current_chat_id = chat_id
             try:
@@ -248,12 +263,22 @@ class TelegramGateway:
                 reply = f"llm error: {exc}"
             finally:
                 self._current_chat_id = None
+            self.vaults.write(
+                vault_key,
+                "working",
+                {
+                    "session_id": loop.session_id,
+                    "active_topic": text[:120],
+                    "last_message_at": message.get("date", ""),
+                },
+                active_session_key=vault_key,
+            )
         self.api("sendMessage", {"chat_id": chat_id, "text": reply[:4000]})
         if not text.startswith("/"):
             self._send_voice_reply(chat_id, reply)
         return reply
 
-    def _handle_command(self, loop: AgentLoop, text: str) -> str:
+    def _handle_command(self, loop: AgentLoop, text: str, vault_key: str) -> str:
         parts = text.split()
         command, args = parts[0].lower(), parts[1:]
         if command in ("/start", "/help"):
@@ -261,10 +286,15 @@ class TelegramGateway:
                 "APEX — the agent that grows with you, safely.\n"
                 "/new — new session\n/cycle — run evolution cycle\n"
                 "/audit — verify audit chain\n/voice on|off — voice replies\n"
+                "/memory show|clear|export — inspect your memory vault\n"
+                "/memory update <field> = <value> — correct a stored fact\n"
                 "Anything else is a chat message."
             )
         if command == "/new":
+            self._close_vault_session(loop, vault_key)
             return f"new session {loop.new_session()[:8]}"
+        if command == "/memory":
+            return self._handle_memory_command(args, vault_key)
         if command == "/cycle":
             report = self.system.run_knowledge_informed_cycle()
             return f"cycle severity={report.overall_severity.value}"
@@ -277,6 +307,46 @@ class TelegramGateway:
                 return f"voice {'enabled' if self.config.voice.enabled else 'disabled'}"
             return f"voice is {'on' if self.config.voice.enabled else 'off'}"
         return "unknown command (try /help)"
+
+    def _handle_memory_command(self, args: list[str], vault_key: str) -> str:
+        """User-facing memory controls, scoped to the authenticated vault."""
+        action = args[0].lower() if args else "show"
+        if action == "show":
+            return self.vaults.show(vault_key)
+        if action == "clear":
+            self.vaults.clear(vault_key)
+            return "memory vault cleared"
+        if action == "export":
+            return self.vaults.export(vault_key)[:4000]
+        if action == "update":
+            rest = " ".join(args[1:])
+            field, sep, value = rest.partition("=")
+            field, value = field.strip(), value.strip().strip('"')
+            if not sep or not field or not value:
+                return "usage: /memory update <field> = <value>"
+            self.vaults.update_fact(vault_key, field, value)
+            return f"updated {field}"
+        return "usage: /memory show|clear|export|update <field> = <value>"
+
+    def _close_vault_session(self, loop: AgentLoop, vault_key: str) -> None:
+        """Write an episodic summary and wipe working memory at session close."""
+        user_texts = [
+            m.content
+            for m in self.sessions.messages(loop.session_id)
+            if m.role == "user"
+        ]
+        if not user_texts:
+            return
+        summary = (
+            f"{len(user_texts)} user message(s); started with: "
+            f"{user_texts[0][:200]}"
+        )
+        self.vaults.close_session(
+            vault_key,
+            session_id=loop.session_id,
+            summary=summary,
+            active_session_key=vault_key,
+        )
 
     # ------------------------------------------------------------------
 

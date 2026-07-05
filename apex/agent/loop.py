@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from pydantic import BaseModel, Field
 
@@ -84,6 +85,7 @@ class AgentLoop:
         channel: str = "terminal",
         knowledge_root: str | Path = ".",
         skill_store: SkillStore | None = None,
+        context_provider: Callable[[], str] | None = None,
     ) -> None:
         self.system = system
         self.config = config
@@ -93,6 +95,7 @@ class AgentLoop:
         self.channel = channel
         self.knowledge_root = Path(knowledge_root)
         self.skill_store = skill_store
+        self.context_provider = context_provider
         self.session_id = session_id or session_store.create_session(
             channel=channel
         )
@@ -105,6 +108,10 @@ class AgentLoop:
 
     def _history(self) -> list[ChatMessage]:
         messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
+        if self.context_provider is not None:
+            extra = self.context_provider()
+            if extra:
+                messages.append(ChatMessage(role="system", content=extra))
         for stored in self.sessions.messages(self.session_id)[-40:]:
             if stored.role in ("user", "assistant"):
                 messages.append(

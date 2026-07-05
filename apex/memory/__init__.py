@@ -12,6 +12,14 @@ from apex.memory.registry import (
     MemoryProviderRegistry,
     default_registry,
 )
+from apex.memory.vaults import (
+    Episode,
+    MemoryVaultStore,
+    VaultKeyError,
+    VaultSnapshot,
+    make_vault_key,
+    render_memory_context,
+)
 
 __all__ = [
     "MemoryEntry",
@@ -21,4 +29,10 @@ __all__ = [
     "MemoryProviderInfo",
     "MemoryProviderRegistry",
     "default_registry",
+    "Episode",
+    "MemoryVaultStore",
+    "VaultKeyError",
+    "VaultSnapshot",
+    "make_vault_key",
+    "render_memory_context",
 ]

@@ -82,7 +82,7 @@ def test_gateway_shares_session_store(gateway, tmp_path):
     gw, _ = gateway([text_response("noted")])
     gw.handle_message({"chat": {"id": 42}, "text": "remember the milk"})
     hits = gw.sessions.search("milk")
-    assert hits and hits[0].session_id == gw._loop_for(42).session_id
+    assert hits and hits[0].session_id == gw._loop_for(42, "telegram::42").session_id
 
 
 def test_gateway_commands(gateway):
@@ -116,6 +116,73 @@ def test_gateway_callback_approval(gateway):
     gw._handle_callback({"id": "cb1", "data": "appr1:yes"})
     assert pending.get_nowait() is True
     assert any(m == "answerCallbackQuery" for m, _ in api.calls)
+
+
+def test_gateway_memory_vaults_isolated_per_user(gateway):
+    gw, _ = gateway([text_response("a"), text_response("b")])
+    gw.handle_message(
+        {"chat": {"id": 1}, "from": {"id": 1}, "text": "I love jazz"}
+    )
+    gw.handle_message(
+        {"chat": {"id": 2}, "from": {"id": 2}, "text": "I love metal"}
+    )
+    v1 = gw.vaults.load("telegram::1")
+    v2 = gw.vaults.load("telegram::2")
+    assert v1.working["active_topic"] == "I love jazz"
+    assert v2.working["active_topic"] == "I love metal"
+    assert gw._loop_for(1, "telegram::1") is not gw._loop_for(2, "telegram::2")
+
+
+def test_gateway_memory_commands(gateway):
+    gw, _ = gateway([])
+    assert "memory vault telegram::7" in gw.handle_message(
+        {"chat": {"id": 7}, "from": {"id": 7}, "text": "/memory show"}
+    )
+    assert "updated preferred_name" in gw.handle_message(
+        {
+            "chat": {"id": 7},
+            "from": {"id": 7},
+            "text": "/memory update preferred_name = Zara",
+        }
+    )
+    assert gw.vaults.load("telegram::7").core["preferred_name"] == "Zara"
+    exported = gw.handle_message(
+        {"chat": {"id": 7}, "from": {"id": 7}, "text": "/memory export"}
+    )
+    assert '"telegram::7"' in exported
+    assert "cleared" in gw.handle_message(
+        {"chat": {"id": 7}, "from": {"id": 7}, "text": "/memory clear"}
+    )
+    assert gw.vaults.load("telegram::7").core == {}
+
+
+def test_gateway_new_session_writes_episode(gateway):
+    gw, _ = gateway([text_response("sure")])
+    gw.handle_message(
+        {"chat": {"id": 5}, "from": {"id": 5}, "text": "help me with python"}
+    )
+    gw.handle_message({"chat": {"id": 5}, "from": {"id": 5}, "text": "/new"})
+    snap = gw.vaults.load("telegram::5")
+    assert snap.episodes and "help me with python" in snap.episodes[0].summary
+    assert snap.working == {}
+
+
+def test_gateway_injects_memory_context_into_loop(gateway):
+    gw, _ = gateway([])
+    vault_key = "telegram::9"
+    gw.vaults.write(
+        vault_key,
+        "core",
+        {"preferred_name": "Zara"},
+        active_session_key=vault_key,
+    )
+    loop = gw._loop_for(9, vault_key)
+    history = loop._history()
+    assert any(
+        "MEMORY CONTEXT" in (m.content or "") and "Zara" in (m.content or "")
+        for m in history
+        if m.role == "system"
+    )
 
 
 # ----------------------------------------------------------------------
