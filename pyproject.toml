@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apex-life-os"
+version = "0.1.0"
+description = "APEX Self-Evolving AI System — a MAPE-K-based autonomic platform with neuro-symbolic reasoning, decision orchestration, and human oversight."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "bboyallu" }]
+dependencies = [
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apex*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
