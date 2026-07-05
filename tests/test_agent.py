@@ -90,6 +90,7 @@ def agent(tmp_path):
             tools=tools,
             session_store=sessions,
             knowledge_root=tmp_path,
+            skill_store=skills,
         )
         return loop, system, sessions, skills
 
@@ -331,6 +332,71 @@ def test_agent_turn_is_audit_logged(agent):
     loop, system, _, _ = agent([text_response("ok")])
     loop.send("hello")
     assert system.audit_ledger.read_by_type("agent_turn")
+
+
+def test_agent_auto_learns_skill_from_multistep_turn(agent):
+    loop, system, _, skills = agent(
+        [
+            tool_response("remember", {"subject": "prefs", "fact": "likes tea"}),
+            tool_response("search_memories", {"query": "tea"}, call_id="call_2"),
+            text_response("Done."),
+        ]
+    )
+    loop.send("track my tea preference")
+    saved = skills.list()
+    assert len(saved) == 1
+    assert saved[0].name == "track my tea preference"
+    assert len(saved[0].steps) == 2
+    assert saved[0].steps[0].startswith("remember(")
+    assert system.audit_ledger.read_by_type("skill_autolearned")
+
+
+def test_agent_no_auto_skill_for_single_tool_turn(agent):
+    loop, system, _, skills = agent(
+        [
+            tool_response("remember", {"subject": "prefs", "fact": "likes tea"}),
+            text_response("Done."),
+        ]
+    )
+    loop.send("remember I like tea")
+    assert skills.list() == []
+    assert not system.audit_ledger.read_by_type("skill_autolearned")
+
+
+def test_agent_no_auto_skill_when_model_saved_one(agent):
+    loop, system, _, skills = agent(
+        [
+            tool_response("remember", {"subject": "prefs", "fact": "likes tea"}),
+            tool_response(
+                "save_skill",
+                {
+                    "name": "Tea Tracking",
+                    "description": "Track tea prefs",
+                    "steps": ["remember the fact"],
+                },
+                call_id="call_2",
+            ),
+            text_response("Saved."),
+        ]
+    )
+    loop.send("track my tea preference")
+    saved = skills.list()
+    assert [s.name for s in saved] == ["Tea Tracking"]
+    assert not system.audit_ledger.read_by_type("skill_autolearned")
+
+
+def test_agent_auto_skill_disabled_by_config(agent):
+    loop, system, _, skills = agent(
+        [
+            tool_response("remember", {"subject": "prefs", "fact": "likes tea"}),
+            tool_response("search_memories", {"query": "tea"}, call_id="call_2"),
+            text_response("Done."),
+        ]
+    )
+    loop.config.auto_skill_min_steps = 0
+    loop.send("track my tea preference")
+    assert skills.list() == []
+    assert not system.audit_ledger.read_by_type("skill_autolearned")
 
 
 def test_record_insight_feeds_knowledge_raw(agent, tmp_path):

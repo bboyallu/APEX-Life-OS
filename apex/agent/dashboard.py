@@ -72,6 +72,7 @@ class DashboardState:
             session_store=self.sessions,
             channel="dashboard",
             knowledge_root=knowledge_root,
+            skill_store=self.skills,
         )
 
     # ------------------------------------------------------------------

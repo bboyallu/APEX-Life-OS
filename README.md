@@ -1,7 +1,7 @@
 # APEX Life OS
 
 A **self-evolving AI agent** you talk to — built on the APEX blueprint.  
-Chat with APEX from your terminal, your phone (Telegram), or a web dashboard. It grows with you: it saves skills from experience, persists what it learns to long-term memory, and maintains a personal knowledge base — while continuously monitoring its own performance and safely evolving itself.
+Chat with APEX from your terminal, your phone (Telegram), or a web dashboard. It grows with you: it learns skills from experience on its own — every multi-step task it completes is automatically distilled into a reusable skill — persists what it learns to long-term memory, and maintains a personal knowledge base — while continuously monitoring its own performance and safely evolving itself.
 
 **Why APEX over agents like Hermes?** Every action APEX takes is risk-scored, governance-gated, and recorded on a tamper-evident audit ledger. High-risk actions (like shell commands) require your explicit approval — in the terminal or via Telegram approve/veto buttons. The agent that grows with you, *safely*.
 

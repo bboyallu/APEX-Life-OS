@@ -113,6 +113,7 @@ class TelegramGateway:
                 session_store=self.sessions,
                 channel=f"telegram:{chat_id}",
                 knowledge_root=self.knowledge_root,
+                skill_store=self.skills,
             )
         return self._loops[chat_id]
 

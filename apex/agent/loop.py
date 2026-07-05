@@ -6,12 +6,16 @@ dashboard). APEX upgrades over ungoverned agents:
 * every tool call is risk-scored and L3+ calls require human approval;
 * every turn is persisted and audit-logged;
 * periodic memory nudges ask the model to persist important facts;
+* multi-step tool turns are distilled into reusable skills autonomously —
+  no human prompt needed (audit-logged, tunable via
+  ``AgentConfig.auto_skill_min_steps``);
 * conversation insights are dropped into the knowledge ``raw/`` folder so
   the KnowledgeBridge can turn chat learnings into evolution signals.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,8 +24,12 @@ from pydantic import BaseModel, Field
 from apex.agent.config import AgentConfig
 from apex.agent.llm import ChatMessage, LLMClient
 from apex.agent.sessions import SessionStore
+from apex.agent.skills import Skill, SkillStore
 from apex.agent.tools import ToolRegistry
 from apex.system import ApexSystem
+
+#: Tools that manage skills themselves — never distilled into a new skill.
+_SKILL_MANAGEMENT_TOOLS = frozenset({"save_skill", "use_skill"})
 
 SYSTEM_PROMPT = """\
 You are APEX, a self-evolving personal AI assistant. You grow with your \
@@ -62,6 +70,7 @@ class AgentLoop:
         session_id: str | None = None,
         channel: str = "terminal",
         knowledge_root: str | Path = ".",
+        skill_store: SkillStore | None = None,
     ) -> None:
         self.system = system
         self.config = config
@@ -70,6 +79,7 @@ class AgentLoop:
         self.sessions = session_store
         self.channel = channel
         self.knowledge_root = Path(knowledge_root)
+        self.skill_store = skill_store
         self.session_id = session_id or session_store.create_session(
             channel=channel
         )
@@ -100,6 +110,7 @@ class AgentLoop:
             messages.append(ChatMessage(role="system", content=MEMORY_NUDGE))
 
         executed: list[str] = []
+        call_log: list[tuple[str, dict]] = []
         reply = ""
         for _ in range(max(self.config.max_tool_rounds, 1)):
             response = self.client.chat(messages, tools=self.tools.specs())
@@ -116,6 +127,7 @@ class AgentLoop:
             for call in response.tool_calls:
                 result = self.tools.execute(call.name, call.arguments)
                 executed.append(call.name)
+                call_log.append((call.name, call.arguments))
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -128,6 +140,7 @@ class AgentLoop:
             reply = "(stopped: too many tool rounds without a final answer)"
 
         self.sessions.add_message(self.session_id, "assistant", reply)
+        self._auto_learn_skill(user_text, call_log)
         self.system.audit_ledger.append(
             "agent_turn",
             actor=f"agent:{self.channel}",
@@ -138,6 +151,59 @@ class AgentLoop:
             },
         )
         return AgentTurn(reply=reply, tool_calls=executed)
+
+    def _auto_learn_skill(
+        self, user_text: str, call_log: list[tuple[str, dict]]
+    ) -> Skill | None:
+        """Autonomously distil a multi-step tool turn into a skill.
+
+        APEX makes skills on its own: whenever a turn executed at least
+        ``config.auto_skill_min_steps`` substantive tool calls (and the
+        model did not already save one itself), the procedure is saved as
+        a reusable skill — no human prompt required. Every auto-learned
+        skill lands on the audit ledger so the operator can review it.
+        """
+        min_steps = self.config.auto_skill_min_steps
+        if self.skill_store is None or min_steps <= 0:
+            return None
+        if any(name == "save_skill" for name, _ in call_log):
+            return None  # the model already saved a skill this turn
+        substantive = [
+            (name, args)
+            for name, args in call_log
+            if name not in _SKILL_MANAGEMENT_TOOLS
+        ]
+        if len(substantive) < min_steps:
+            return None
+
+        name = _skill_name(user_text)
+        steps = [
+            f"{tool}({_compact_args(args)})" for tool, args in substantive
+        ]
+        existing = self.skill_store.get(name)
+        skill = Skill(
+            name=name,
+            description=(
+                f"Auto-learned from a {self.channel} conversation: "
+                f"{user_text.strip()[:200]}"
+            ),
+            steps=steps,
+            uses=existing.uses if existing else 0,
+            created_at=existing.created_at
+            if existing
+            else datetime.now(timezone.utc).isoformat(),
+        )
+        self.skill_store.save(skill)
+        self.system.audit_ledger.append(
+            "skill_autolearned",
+            actor=f"agent:{self.channel}",
+            payload={
+                "session": self.session_id,
+                "skill": skill.slug,
+                "steps": len(steps),
+            },
+        )
+        return skill
 
     def record_insight(self, insight: str) -> Path:
         """Drop a conversation insight into knowledge ``raw/``.
@@ -159,3 +225,17 @@ class AgentLoop:
             payload={"session": self.session_id, "chars": len(insight)},
         )
         return path
+
+def _skill_name(user_text: str) -> str:
+    """Derive a short, stable skill name from the user's request."""
+    words = user_text.strip().split()
+    return " ".join(words[:8]) or "learned procedure"
+
+
+def _compact_args(args: dict) -> str:
+    """One-line JSON rendering of tool arguments, truncated for readability."""
+    try:
+        rendered = json.dumps(args, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        rendered = str(args)
+    return rendered if len(rendered) <= 120 else rendered[:117] + "..."

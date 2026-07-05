@@ -63,6 +63,9 @@ class AgentConfig(BaseModel):
     temperature: float = 0.7
     max_tool_rounds: int = 8
     memory_nudge_every: int = 5
+    #: Auto-save a skill after any turn that executed at least this many
+    #: substantive tool calls (0 disables autonomous skill learning).
+    auto_skill_min_steps: int = 2
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
 
     @property

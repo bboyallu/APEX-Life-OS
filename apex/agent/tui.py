@@ -30,18 +30,19 @@ _DIM = "\033[2m"
 _CYAN = "\033[36m"
 _GREEN = "\033[32m"
 _YELLOW = "\033[33m"
-_BRIGHT_YELLOW = "\033[93m"
-_ORANGE = "\033[38;5;208m"
+_EMERALD_BRIGHT = "\033[38;5;48m"
+_EMERALD = "\033[38;5;42m"
+_EMERALD_DEEP = "\033[38;5;29m"
 _RESET = "\033[0m"
 
-# Big pixel-style wordmark, shaded top-to-bottom like a sunset gradient.
+# Big pixel-style wordmark, shaded top-to-bottom in emerald green.
 _LOGO_ROWS = (
-    (_BRIGHT_YELLOW, " █████╗ ██████╗ ███████╗██╗  ██╗"),
-    (_BRIGHT_YELLOW, "██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝"),
-    (_YELLOW, "███████║██████╔╝█████╗   ╚███╔╝ "),
-    (_YELLOW, "██╔══██║██╔═══╝ ██╔══╝   ██╔██╗ "),
-    (_ORANGE, "██║  ██║██║     ███████╗██╔╝ ██╗"),
-    (_ORANGE, "╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝"),
+    (_EMERALD_BRIGHT, " █████╗ ██████╗ ███████╗██╗  ██╗"),
+    (_EMERALD_BRIGHT, "██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝"),
+    (_EMERALD, "███████║██████╔╝█████╗   ╚███╔╝ "),
+    (_EMERALD, "██╔══██║██╔═══╝ ██╔══╝   ██╔██╗ "),
+    (_EMERALD_DEEP, "██║  ██║██║     ███████╗██╔╝ ██╗"),
+    (_EMERALD_DEEP, "╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝"),
 )
 
 # Display grouping for the banner; unknown tools land in "other".
@@ -116,6 +117,7 @@ class ChatShell:
             session_store=self.sessions,
             channel="terminal",
             knowledge_root=knowledge_root,
+            skill_store=self.skills,
         )
         self._speaker = None
 
@@ -229,27 +231,27 @@ class ChatShell:
         pad = _PANEL_WIDTH - len(title)
         left = pad // 2
         print(
-            f"{_ORANGE}┌{'─' * left}{_RESET}{_BOLD}{_BRIGHT_YELLOW}{title}"
-            f"{_RESET}{_ORANGE}{'─' * (pad - left)}┐{_RESET}"
+            f"{_EMERALD_DEEP}┌{'─' * left}{_RESET}{_BOLD}{_EMERALD_BRIGHT}{title}"
+            f"{_RESET}{_EMERALD_DEEP}{'─' * (pad - left)}┐{_RESET}"
         )
 
         def panel(text: str = "") -> None:
-            print(f"{_ORANGE}│{_RESET} {text}")
+            print(f"{_EMERALD_DEEP}│{_RESET} {text}")
 
-        panel(f"{_BOLD}{_BRIGHT_YELLOW}Available Tools{_RESET}")
+        panel(f"{_BOLD}{_EMERALD_BRIGHT}Available Tools{_RESET}")
         for group in sorted(groups):
             names = ", ".join(groups[group])
-            panel(f"  {_ORANGE}{group}:{_RESET} {names}")
+            panel(f"  {_EMERALD_DEEP}{group}:{_RESET} {names}")
         panel()
-        panel(f"{_BOLD}{_BRIGHT_YELLOW}Available Skills{_RESET}")
+        panel(f"{_BOLD}{_EMERALD_BRIGHT}Available Skills{_RESET}")
         if skills:
             for skill in skills:
-                panel(f"  {_ORANGE}{skill.name}:{_RESET} {skill.description}")
+                panel(f"  {_EMERALD_DEEP}{skill.name}:{_RESET} {skill.description}")
         else:
-            panel(f"  {_DIM}none saved yet — ask APEX to save one{_RESET}")
+            panel(f"  {_DIM}none yet — APEX learns skills automatically{_RESET}")
         panel()
         panel(
-            f"{_DIM}model:{_RESET} {_YELLOW}"
+            f"{_DIM}model:{_RESET} {_EMERALD}"
             f"{self.config.provider}:{self.config.resolved_model()}{_RESET}"
         )
         panel(f"{_DIM}root:  {self.knowledge_root}{_RESET}")
@@ -259,7 +261,7 @@ class ChatShell:
             f"{_DIM}{tool_count} tools · {len(skills)} skills · "
             f"/help for commands{_RESET}"
         )
-        print(f"{_ORANGE}└{'─' * _PANEL_WIDTH}┘{_RESET}")
+        print(f"{_EMERALD_DEEP}└{'─' * _PANEL_WIDTH}┘{_RESET}")
         print()
         print("Welcome to APEX! Type your message or /help for commands.")
         print(
