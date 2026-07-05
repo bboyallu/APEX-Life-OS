@@ -92,7 +92,7 @@ class AgentConfig(BaseModel):
 def detect_ollama_models(
     base_url: str | None = None,
     *,
-    fetch: "Callable[[str, float], str] | None" = None,
+    fetch: Callable[[str, float], str] | None = None,
     timeout: float = 0.8,
 ) -> list[str]:
     """Return installed model names if a local Ollama server is online.
@@ -113,7 +113,9 @@ def detect_ollama_models(
             for model in data.get("models", [])
             if isinstance(model, dict) and model.get("name")
         ]
-    except Exception:  # noqa: BLE001 — detection is best-effort
+    except (OSError, ValueError, KeyError, TypeError):
+        # Detection is best-effort: offline server, bad JSON, or an
+        # unexpected payload shape all mean "no local models".
         return []
 
 
@@ -125,7 +127,9 @@ def _urlopen_text(url: str, timeout: float) -> str:
 def autodetect_local_provider(config: AgentConfig) -> str | None:
     """Switch *config* to Ollama when it is running locally.
 
-    Only applies when the user has no API key exported and is still on a
+    Mutates *config* in place (provider, base_url, model) when a switch
+    happens; callers should persist it with :func:`save_config`. Only
+    applies when the user has no API key exported and is still on a
     remote provider (i.e. chat would fail anyway). Prefers a model that is
     actually installed. Returns the detected model name, or ``None`` when
     no switch happened.
