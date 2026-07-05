@@ -184,6 +184,14 @@ class KnowledgeVault:
             path.write_text("\n".join(lines), encoding="utf-8")
             return path
 
+    def search(self, query: str) -> list[tuple[str, str]]:
+        """Search the compiled wiki and raw material for ``query``.
+
+        Returns ``(source, snippet)`` pairs without writing any files.
+        """
+        with self._lock:
+            return self._search_knowledge(query)
+
     # ------------------------------------------------------------------
     # Private helpers — ingestion
     # ------------------------------------------------------------------
