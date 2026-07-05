@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.request
 from pathlib import Path
+from typing import Callable
 
 from pydantic import BaseModel, Field
 
@@ -85,6 +87,60 @@ class AgentConfig(BaseModel):
         self.provider = provider
         self.base_url = preset["base_url"]
         self.model = model or preset["model"]
+
+
+def detect_ollama_models(
+    base_url: str | None = None,
+    *,
+    fetch: "Callable[[str, float], str] | None" = None,
+    timeout: float = 0.8,
+) -> list[str]:
+    """Return installed model names if a local Ollama server is online.
+
+    Probes the Ollama native ``/api/tags`` endpoint (stdlib only). Returns
+    an empty list when the server is unreachable — never raises, so callers
+    can use it as a cheap availability check at startup.
+    """
+    root = (base_url or PROVIDER_PRESETS["ollama"]["base_url"]).rstrip("/")
+    if root.endswith("/v1"):
+        root = root[: -len("/v1")]
+    url = root + "/api/tags"
+    fetch = fetch or _urlopen_text
+    try:
+        data = json.loads(fetch(url, timeout))
+        return [
+            model["name"]
+            for model in data.get("models", [])
+            if isinstance(model, dict) and model.get("name")
+        ]
+    except Exception:  # noqa: BLE001 — detection is best-effort
+        return []
+
+
+def _urlopen_text(url: str, timeout: float) -> str:
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        return response.read().decode("utf-8")
+
+
+def autodetect_local_provider(config: AgentConfig) -> str | None:
+    """Switch *config* to Ollama when it is running locally.
+
+    Only applies when the user has no API key exported and is still on a
+    remote provider (i.e. chat would fail anyway). Prefers a model that is
+    actually installed. Returns the detected model name, or ``None`` when
+    no switch happened.
+    """
+    if config.api_key or config.provider in ("ollama", "lmstudio", "vllm"):
+        return None
+    models = detect_ollama_models()
+    if not models:
+        return None
+    preset_model = PROVIDER_PRESETS["ollama"]["model"]
+    chosen = next(
+        (m for m in models if m.split(":")[0] == preset_model), models[0]
+    )
+    config.use_provider("ollama", chosen)
+    return chosen
 
 
 def config_path(home: Path | None = None) -> Path:

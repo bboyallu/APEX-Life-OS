@@ -12,6 +12,7 @@ from pathlib import Path
 from apex.agent.config import (
     PROVIDER_PRESETS,
     AgentConfig,
+    autodetect_local_provider,
     load_config,
     save_config,
 )
@@ -267,12 +268,24 @@ class ChatShell:
         )
 
     def run(self) -> int:
+        detected = autodetect_local_provider(self.config)
+        if detected:
+            save_config(self.config)
         self.print_banner()
-        if not self.config.api_key:
+        if detected:
             print(
-                f"{_YELLOW}warning: APEX_API_KEY is not set — chat will fail "
-                f"until you export it (or point /model at a local endpoint)."
-                f"{_RESET}"
+                f"{_GREEN}✔ detected local Ollama server — using "
+                f"{detected} (switch anytime with /model){_RESET}"
+            )
+        elif not self.config.api_key and self.config.provider not in (
+            "ollama",
+            "lmstudio",
+            "vllm",
+        ):
+            print(
+                f"{_YELLOW}warning: APEX_API_KEY is not set and no local "
+                f"Ollama server was found — chat will fail until you export "
+                f"a key or start Ollama.{_RESET}"
             )
         while True:
             try:

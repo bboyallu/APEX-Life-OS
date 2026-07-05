@@ -7,7 +7,13 @@ from datetime import datetime
 
 import pytest
 
-from apex.agent.config import AgentConfig, load_config, save_config
+from apex.agent.config import (
+    AgentConfig,
+    autodetect_local_provider,
+    detect_ollama_models,
+    load_config,
+    save_config,
+)
 from apex.agent.llm import ChatMessage, LLMClient
 from apex.agent.loop import AgentLoop
 from apex.agent.neural import llm_neural_model
@@ -122,6 +128,62 @@ def test_config_env_overrides(monkeypatch):
     config = AgentConfig()
     assert config.resolved_model() == "custom-model"
     assert config.resolved_base_url() == "http://localhost:9999/v1"
+
+
+def test_detect_ollama_models_online():
+    payload = json.dumps(
+        {"models": [{"name": "llama3.2:latest"}, {"name": "mistral:7b"}]}
+    )
+    seen: list[str] = []
+
+    def fake_fetch(url, timeout):
+        seen.append(url)
+        return payload
+
+    models = detect_ollama_models(fetch=fake_fetch)
+    assert models == ["llama3.2:latest", "mistral:7b"]
+    assert seen == ["http://localhost:11434/api/tags"]
+
+
+def test_detect_ollama_models_offline():
+    def fake_fetch(url, timeout):
+        raise OSError("connection refused")
+
+    assert detect_ollama_models(fetch=fake_fetch) == []
+
+
+def test_autodetect_switches_to_ollama(monkeypatch):
+    monkeypatch.delenv("APEX_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "apex.agent.config.detect_ollama_models",
+        lambda *a, **k: ["mistral:7b", "llama3.2:latest"],
+    )
+    config = AgentConfig()
+    detected = autodetect_local_provider(config)
+    assert detected == "llama3.2:latest"  # prefers the preset model family
+    assert config.provider == "ollama"
+    assert config.model == "llama3.2:latest"
+
+
+def test_autodetect_skipped_with_api_key(monkeypatch):
+    monkeypatch.setenv("APEX_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "apex.agent.config.detect_ollama_models",
+        lambda *a, **k: ["llama3.2:latest"],
+    )
+    config = AgentConfig()
+    assert autodetect_local_provider(config) is None
+    assert config.provider == "openai"
+
+
+def test_autodetect_noop_when_offline(monkeypatch):
+    monkeypatch.delenv("APEX_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "apex.agent.config.detect_ollama_models", lambda *a, **k: []
+    )
+    config = AgentConfig()
+    assert autodetect_local_provider(config) is None
+    assert config.provider == "openai"
 
 
 # ----------------------------------------------------------------------
