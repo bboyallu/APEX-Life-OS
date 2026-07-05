@@ -23,6 +23,7 @@ from apex.core.types import (
 )
 from apex.governance.audit import AuditLedger
 from apex.governance.constraints import SafetyConstraintRegistry
+from apex.knowledge.vault import IngestReport, KnowledgeVault
 from apex.mape.analyzer import Analyzer, SignalRule
 from apex.mape.executor import Executor
 from apex.mape.loop import MAPELoop
@@ -55,6 +56,10 @@ class ApexSystem:
     memory_provider:
         Long-term memory backend.  Defaults to the built-in markdown store
         (``MEMORY.md`` / ``USER.md`` in the current working directory).
+    knowledge_root:
+        Directory containing the ``raw/``, ``wiki/`` and ``outputs/``
+        knowledge base folders (see ``KNOWLEDGE_BASE.md``).  Defaults to the
+        current working directory.
     """
 
     def __init__(
@@ -68,6 +73,7 @@ class ApexSystem:
         on_plan_generated: Callable[[AdaptationPlan], bool] | None = None,
         dead_man_timeout_seconds: int = 900,
         memory_provider: MemoryProvider | None = None,
+        knowledge_root: str = ".",
     ) -> None:
         # Core
         self.knowledge_base = KnowledgeBase()
@@ -128,6 +134,41 @@ class ApexSystem:
 
         # Long-term memory
         self.memory = memory_provider or BuiltinMemoryProvider()
+
+        # Personal knowledge base (raw/ → wiki/ → outputs/)
+        self.knowledge_vault = KnowledgeVault(root=knowledge_root)
+
+    # ------------------------------------------------------------------
+    # Knowledge base helpers
+    # ------------------------------------------------------------------
+
+    def process_knowledge(self) -> IngestReport:
+        """Fold new/changed material from ``raw/`` into the ``wiki/``."""
+        report = self.knowledge_vault.process_raw()
+        self.audit_ledger.append(
+            "knowledge_processed",
+            actor="apex_system",
+            payload={
+                "ingested": report.ingested,
+                "updated": report.updated,
+                "skipped": len(report.skipped),
+                "articles": report.articles,
+            },
+        )
+        return report
+
+    def generate_knowledge_report(self, query: str, *, title: str | None = None) -> str:
+        """Answer ``query`` from the knowledge base into a new ``outputs/`` file.
+
+        Returns the path of the generated report.
+        """
+        path = self.knowledge_vault.generate_report(query, title=title)
+        self.audit_ledger.append(
+            "knowledge_report_generated",
+            actor="apex_system",
+            payload={"query": query, "output": str(path)},
+        )
+        return str(path)
 
     # ------------------------------------------------------------------
     # Memory helpers

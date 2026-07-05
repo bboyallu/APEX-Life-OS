@@ -9,9 +9,11 @@ Blueprint, including:
 - Autonomic threshold engine and risk scoring
 - High-priority outbound alert system
 - Governance: immutable safety core and audit ledger
+- Personal knowledge base (raw/ → wiki/ → outputs/)
 """
 
 from apex.core import KnowledgeBase
+from apex.knowledge import KnowledgeVault
 from apex.system import ApexSystem
 
 __version__ = "0.1.0"
@@ -19,5 +21,6 @@ __version__ = "0.1.0"
 __all__ = [
     "ApexSystem",
     "KnowledgeBase",
+    "KnowledgeVault",
     "__version__",
 ]
