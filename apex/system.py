@@ -28,6 +28,8 @@ from apex.mape.executor import Executor
 from apex.mape.loop import MAPELoop
 from apex.mape.monitor import AnomalyAlert, AnomalyDetector, MetricEvent, Monitor
 from apex.mape.planner import Planner
+from apex.memory.builtin import BuiltinMemoryProvider
+from apex.memory.provider import MemoryEntry, MemoryProvider, MemoryScope
 from apex.neuro_symbolic.neural import NeuralSubsystem
 from apex.neuro_symbolic.symbolic import SymbolicSubsystem
 from apex.neuro_symbolic.verifier import VerificationPipeline
@@ -50,6 +52,9 @@ class ApexSystem:
         Callback ``(AdaptationPlan) -> bool`` for manual approval of L3+ plans.
     dead_man_timeout_seconds:
         Seconds without oversight contact before L2+ evolutions are suspended.
+    memory_provider:
+        Long-term memory backend.  Defaults to the built-in markdown store
+        (``MEMORY.md`` / ``USER.md`` in the current working directory).
     """
 
     def __init__(
@@ -62,6 +67,7 @@ class ApexSystem:
         on_freeze: Callable[[], None] | None = None,
         on_plan_generated: Callable[[AdaptationPlan], bool] | None = None,
         dead_man_timeout_seconds: int = 900,
+        memory_provider: MemoryProvider | None = None,
     ) -> None:
         # Core
         self.knowledge_base = KnowledgeBase()
@@ -119,6 +125,55 @@ class ApexSystem:
             email_handler=email_handler,
         )
         self.alert_system = AlertSystem(channels=channels, on_freeze=on_freeze)
+
+        # Long-term memory
+        self.memory = memory_provider or BuiltinMemoryProvider()
+
+    # ------------------------------------------------------------------
+    # Memory helpers
+    # ------------------------------------------------------------------
+
+    def remember(
+        self,
+        subject: str,
+        fact: str,
+        *,
+        scope: MemoryScope = MemoryScope.REPOSITORY,
+        citation: str = "",
+    ) -> MemoryEntry:
+        """Store a long-term memory via the configured provider."""
+        entry = self.memory.remember(
+            MemoryEntry(scope=scope, subject=subject, fact=fact, citation=citation)
+        )
+        self.audit_ledger.append(
+            "memory_stored",
+            actor="apex_system",
+            payload={
+                "entry_id": entry.entry_id,
+                "scope": entry.scope.value,
+                "subject": entry.subject,
+                "provider": self.memory.name,
+            },
+        )
+        return entry
+
+    def recall_memories(self, scope: MemoryScope | None = None) -> list[MemoryEntry]:
+        return self.memory.recall(scope)
+
+    def search_memories(
+        self, query: str, scope: MemoryScope | None = None
+    ) -> list[MemoryEntry]:
+        return self.memory.search(query, scope)
+
+    def forget_memory(self, entry_id: str) -> bool:
+        forgotten = self.memory.forget(entry_id)
+        if forgotten:
+            self.audit_ledger.append(
+                "memory_forgotten",
+                actor="apex_system",
+                payload={"entry_id": entry_id, "provider": self.memory.name},
+            )
+        return forgotten
 
     # ------------------------------------------------------------------
     # Monitor helpers

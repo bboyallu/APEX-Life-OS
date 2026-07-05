@@ -40,6 +40,7 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 | `apex.orchestration` | `PathSelector`, `DecisionOrchestrator`, policy arbitration |
 | `apex.thresholds` | `RiskScorer`, `AutonomicThresholdEngine` with dead-man switch |
 | `apex.alerts` | `AlertChannels` (voice/push/SMS/email), `AlertSystem`, approval API |
+| `apex.memory` | Pluggable long-term memory: `MemoryProvider`, built-in `MEMORY.md`/`USER.md` store, provider registry |
 | `apex.governance` | `SafetyConstraintRegistry` (immutable core), `AuditLedger` |
 | `apex.system` | `ApexSystem` — top-level façade wiring everything together |
 
@@ -157,6 +158,46 @@ Every decision emits a `DecisionRecord` with a natural-language summary, proof t
 
 ---
 
+## Memory Providers
+
+APEX supports pluggable long-term memory backends. The default is the zero-dependency **built-in** provider, which persists memories to human-readable markdown files.
+
+| Provider | Connection |
+|---|---|
+| `byterover` | requires API key |
+| `hindsight` | API key / local |
+| `holographic` | local |
+| `honcho` | API key / local |
+| `mem0` | API key / local |
+| `openviking` | API key / local |
+| `retaindb` | API key / local |
+| `supermemory` | requires API key |
+| `builtin` *(default)* | `MEMORY.md` / `USER.md` |
+
+Only `builtin` ships with an implementation; external providers are catalogued and enabled by registering a factory:
+
+```python
+from apex.memory import default_registry, MemoryScope
+
+registry = default_registry()
+registry.register_factory("mem0", make_mem0_provider)   # your adapter
+provider = registry.create("mem0")
+```
+
+Memory operations on `ApexSystem` are audit-logged:
+
+```python
+entry = system.remember("build", "Use pytest", citation="pyproject.toml")
+system.search_memories("pytest")                        # -> [entry]
+system.recall_memories(MemoryScope.USER)                # user-scoped prefs
+system.forget_memory(entry.entry_id)                    # True
+```
+
+- **Repository scope** → `MEMORY.md` — facts about the system, visible to all agents.
+- **User scope** → `USER.md` — preferences of the current human operator.
+
+---
+
 ## Governance & Safety
 
 - **Immutable safety core** (§7.1): Five hard constraints (`no-self-replication`, `no-constraint-override`, `minimal-footprint`, `human-veto`, `audit-integrity`) loaded at startup; cannot be modified by any autonomous process.
@@ -190,6 +231,7 @@ apex/
   orchestration/       # PathSelector, DecisionOrchestrator
   thresholds/          # RiskScorer, AutonomicThresholdEngine
   alerts/              # AlertChannels, AlertSystem
+  memory/              # MemoryProvider, BuiltinMemoryProvider, registry
   governance/          # SafetyConstraintRegistry, AuditLedger
 tests/
   test_knowledge_base.py
@@ -198,6 +240,7 @@ tests/
   test_orchestration.py
   test_thresholds.py
   test_alerts.py
+  test_memory.py
   test_governance.py
   test_system.py
 ```
