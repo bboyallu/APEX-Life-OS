@@ -5,6 +5,12 @@ It instructs the AI (Claude or any capable agent) on how to ingest,
 organize, cross-reference, and report on the contents of this repository's
 knowledge folders.
 
+This schema is also implemented in code: the `apex.knowledge` package
+provides `KnowledgeVault`, which is built into `ApexSystem`
+(`system.process_knowledge()` / `system.generate_knowledge_report(query)`)
+and follows the rules below programmatically, with every operation recorded
+in the audit ledger.
+
 ## Architecture
 
 The system consists of three folders and this schema file:

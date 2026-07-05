@@ -42,6 +42,7 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 | `apex.alerts` | `AlertChannels` (voice/push/SMS/email), `AlertSystem`, approval API |
 | `apex.memory` | Pluggable long-term memory: `MemoryProvider`, built-in `MEMORY.md`/`USER.md` store, provider registry |
 | `apex.governance` | `SafetyConstraintRegistry` (immutable core), `AuditLedger` |
+| `apex.knowledge` | `KnowledgeVault` — built-in personal knowledge base (`raw/` → `wiki/` → `outputs/`) |
 | `apex.system` | `ApexSystem` — top-level façade wiring everything together |
 
 ---
@@ -210,6 +211,24 @@ The repository also hosts an AI-maintained personal knowledge base, defined by t
 | [`KNOWLEDGE_BASE.md`](KNOWLEDGE_BASE.md) | The system schema file instructing the AI how to handle the data. |
 
 Core functions: automated organization, content processing, intelligent cross-referencing, wiki compilation, and on-demand report generation. See [`KNOWLEDGE_BASE.md`](KNOWLEDGE_BASE.md) for the full processing rules.
+
+The knowledge base is **built into the APEX system** via the `apex.knowledge` package (`KnowledgeVault`), and every operation is recorded in the audit ledger:
+
+```python
+from apex import ApexSystem
+
+system = ApexSystem(knowledge_root=".")
+
+# Fold new/changed material from raw/ into the wiki (idempotent)
+report = system.process_knowledge()
+print(report.ingested, report.articles)
+
+# Ask a question — the answer lands as a new file in outputs/
+path = system.generate_knowledge_report("what do my notes say about deep work?")
+print(path)
+```
+
+`KnowledgeVault` can also be used standalone (`from apex import KnowledgeVault`).
 
 ---
 
