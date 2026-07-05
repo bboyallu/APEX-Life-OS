@@ -44,7 +44,7 @@ if [ -z "$PYTHON" ]; then
     exit 1
 fi
 
-echo "==> Using $($PYTHON --version) at $(command -v $PYTHON)"
+echo "==> Using $("$PYTHON" --version) at $(command -v "$PYTHON")"
 
 # --- Create the virtual environment and install -----------------------------
 if [ ! -d "$VENV_DIR" ]; then
