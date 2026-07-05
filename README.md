@@ -1,7 +1,9 @@
 # APEX Life OS
 
-A **self-evolving AI system** reference implementation built on the APEX blueprint.  
-APEX continuously monitors its own performance, reasons about its limitations, proposes structural or behavioural changes, and enacts those changes — all while remaining bounded by safety constraints and human oversight.
+A **self-evolving AI agent** you talk to — built on the APEX blueprint.  
+Chat with APEX from your terminal, your phone (Telegram), or a web dashboard. It grows with you: it saves skills from experience, persists what it learns to long-term memory, and maintains a personal knowledge base — while continuously monitoring its own performance and safely evolving itself.
+
+**Why APEX over agents like Hermes?** Every action APEX takes is risk-scored, governance-gated, and recorded on a tamper-evident audit ledger. High-risk actions (like shell commands) require your explicit approval — in the terminal or via Telegram approve/veto buttons. The agent that grows with you, *safely*.
 
 ---
 
@@ -9,6 +11,11 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 
 ```
 ┌─────────────────────────────────────────────────────┐
+│                 Agent Interfaces                     │
+│   (Terminal chat · Telegram gateway · Dashboard)     │
+└──────────────────────┬──────────────────────────────┘
+                       │  governed tool calls
+┌──────────────────────▼──────────────────────────────┐
 │               Human Oversight Interface             │
 │        (Dashboard · Alert Channels · Veto API)      │
 └──────────────────────┬──────────────────────────────┘
@@ -34,6 +41,8 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 
 | Package | Description |
 |---|---|
+| `apex.agent` | Conversational agent: LLM client, chat TUI, governed tools, sessions, skills, Telegram gateway, dashboard, scheduler |
+| `apex.voice` | Optional voice interaction: speech-to-text and text-to-speech (API-based, VPS-friendly) |
 | `apex.core` | Data types (`AdaptationPlan`, `AnalysisReport`, …) and the `KnowledgeBase` |
 | `apex.mape` | MAPE-K loop: `Monitor`, `Analyzer`, `Planner`, `Executor`, `MAPELoop` |
 | `apex.neuro_symbolic` | `NeuralSubsystem`, `SymbolicSubsystem`, `VerificationPipeline` |
@@ -49,6 +58,70 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 
 ## Quick Start
 
+### Install → set API key → chat
+
+```bash
+git clone https://github.com/bboyallu/APEX-Life-OS.git
+cd APEX-Life-OS
+./install.sh
+
+export APEX_API_KEY=sk-...        # your LLM provider key
+.venv/bin/apex model              # show / switch provider (openai, openrouter, groq, ollama, …)
+.venv/bin/apex chat               # talk to your agent
+```
+
+In chat, use slash commands: `/model` to switch LLMs, `/memory` and `/skills` to inspect what APEX has learned, `/cycle` to run a self-evolution cycle, `/audit` to verify the tamper-evident ledger, `/voice on` for spoken replies, `/help` for everything.
+
+The agent can call governed tools — search your knowledge base, remember facts, save skills, run evolution cycles, and (with your explicit approval) run shell commands. Denied-by-default for anything high-risk.
+
+### Talk to APEX from your phone (Telegram)
+
+1. Create a bot with [@BotFather](https://t.me/botfather) and copy the token.
+2. On your VPS:
+
+```bash
+export TELEGRAM_BOT_TOKEN=123456:ABC...
+export TELEGRAM_ALLOWED_CHAT_IDS=<your chat id>   # lock it to you
+export APEX_API_KEY=sk-...
+.venv/bin/apex gateway
+```
+
+Or install it as a systemd service: `./install.sh --with-gateway` (secrets go in `/etc/apex/gateway.env`). Messages, memory, and sessions are shared with the terminal — start a conversation on your phone, continue it over SSH. High-risk tool calls arrive as **approve/veto buttons** in Telegram.
+
+### Voice interaction (optional)
+
+Voice is off by default and needs no audio hardware on the server (API-based Whisper STT + TTS through your configured provider):
+
+```bash
+./install.sh --with-voice        # or: pip install "apex-life-os[voice]"
+```
+
+Then in chat (terminal or Telegram): `/voice on`. Telegram voice notes are transcribed automatically, and replies can be spoken back.
+
+### Web dashboard
+
+```bash
+.venv/bin/apex dashboard                     # binds 127.0.0.1:9119
+ssh -L 9119:localhost:9119 user@your-vps     # then open http://localhost:9119
+```
+
+Live chat, session browser, audit-chain viewer, memories, skills, and knowledge outputs.
+
+### Scheduled autonomy
+
+Create `~/.apex/schedule.json` and the daemon runs recurring tasks:
+
+```json
+[
+  {"cron": "0 7 * * *", "action": "knowledge-cycle"},
+  {"cron": "0 18 * * 5", "action": "report", "arg": "what did I learn this week?"}
+]
+```
+
+```bash
+.venv/bin/apex daemon            # heartbeat + evolution cycles + scheduler
+```
+
 ### Install on a VPS (one command)
 
 On any Linux server with Python 3.11+:
@@ -63,6 +136,7 @@ This creates a virtual environment in `.venv`, installs the package, and gives y
 
 ```bash
 .venv/bin/apex --version
+.venv/bin/apex chat                        # interactive agent chat
 .venv/bin/apex cycle                       # run one MAPE-K adaptation cycle
 .venv/bin/apex process-knowledge           # fold raw/ into the wiki/
 .venv/bin/apex report "what do my notes say about deep work?"
@@ -78,18 +152,18 @@ sudo systemctl status apex     # check it's running
 journalctl -u apex -f          # follow the logs
 ```
 
-The service template lives in [`deploy/apex.service`](deploy/apex.service) if you want to customize it.
+The service templates live in [`deploy/`](deploy/) if you want to customize them.
 
 ### Install with Docker
 
 ```bash
 git clone https://github.com/bboyallu/APEX-Life-OS.git
 cd APEX-Life-OS
-docker compose up -d           # builds and runs the daemon
-docker compose logs -f apex    # follow the logs
+docker compose up -d               # daemon + gateway + dashboard
+docker compose logs -f gateway     # follow the gateway
 ```
 
-The container mounts `raw/`, `wiki/`, and `outputs/` from the repository directory, so you can keep dropping files into `raw/` from the host.
+Set `TELEGRAM_BOT_TOKEN` and `APEX_API_KEY` in a `.env` file next to `docker-compose.yml`. The containers mount `raw/`, `wiki/`, and `outputs/` from the repository directory and share agent state (sessions, skills, config) in a named volume.
 
 ### Use as a library
 
@@ -328,6 +402,8 @@ apex/
   __main__.py          # python -m apex
   cli.py               # `apex` command-line interface
   system.py            # Top-level wiring
+  agent/               # LLM client, chat TUI, tools, sessions, skills, gateway, dashboard, scheduler
+  voice/               # Optional STT/TTS (API-based)
   core/                # Types + KnowledgeBase
   mape/                # Monitor, Analyzer, Planner, Executor, MAPELoop
   neuro_symbolic/      # Neural, Symbolic, VerificationPipeline

@@ -7,3 +7,42 @@ services:
       - ./raw:/data/raw
       - ./wiki:/data/wiki
       - ./outputs:/data/outputs
+      - apex-state:/root/.apex
+
+  gateway:
+    build: .
+    container_name: apex-gateway
+    restart: unless-stopped
+    command: ["gateway"]
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALLOWED_CHAT_IDS=${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      - APEX_API_KEY=${APEX_API_KEY:-}
+      - APEX_BASE_URL=${APEX_BASE_URL:-}
+      - APEX_MODEL=${APEX_MODEL:-}
+    volumes:
+      - ./raw:/data/raw
+      - ./wiki:/data/wiki
+      - ./outputs:/data/outputs
+      - apex-state:/root/.apex
+
+  dashboard:
+    build: .
+    container_name: apex-dashboard
+    restart: unless-stopped
+    command: ["dashboard", "--host", "0.0.0.0"]
+    environment:
+      - APEX_API_KEY=${APEX_API_KEY:-}
+      - APEX_BASE_URL=${APEX_BASE_URL:-}
+      - APEX_MODEL=${APEX_MODEL:-}
+    ports:
+      - "127.0.0.1:9119:9119"
+    volumes:
+      - ./raw:/data/raw
+      - ./wiki:/data/wiki
+      - ./outputs:/data/outputs
+      - apex-state:/root/.apex
+
+volumes:
+  apex-state:
+

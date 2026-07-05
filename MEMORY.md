@@ -7,3 +7,6 @@ Repository-scoped facts stored by APEX.
 - [4f0afbd8-9d1a-45ba-9411-f41f96044a2b] (2026-07-05T15:44:23.059096+00:00) **prefs**: likes tea
 - [a9011b7f-21f8-45d2-9a10-7379d4b3dd6c] (2026-07-05T15:44:23.160724+00:00) **prefs**: dark mode
 - [d09b693f-4aee-43ac-a83e-5309379335ba] (2026-07-05T15:44:23.180606+00:00) **prefs**: tea over coffee
+- [b3bb78ec-dd6a-4bc8-bac7-666aaf5f86d6] (2026-07-05T15:46:47.295264+00:00) **prefs**: likes tea
+- [be0b1639-4b8c-42aa-8cf1-94a453fb8915] (2026-07-05T15:46:47.390081+00:00) **prefs**: dark mode
+- [1ce90e15-15b5-4646-890f-aca9784ab15c] (2026-07-05T15:46:47.408694+00:00) **prefs**: tea over coffee

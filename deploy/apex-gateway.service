@@ -1,0 +1,15 @@
+[Unit]
+Description=APEX Life OS — Telegram messaging gateway
+After=network.target
+
+[Service]
+Type=simple
+User={{SERVICE_USER}}
+WorkingDirectory={{REPO_DIR}}
+EnvironmentFile=/etc/apex/gateway.env
+ExecStart={{VENV_DIR}}/bin/apex --knowledge-root {{REPO_DIR}} gateway
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

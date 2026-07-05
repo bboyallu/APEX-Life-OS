@@ -22,6 +22,9 @@ dev = [
     "pytest>=8.2",
     "pytest-cov>=5.0",
 ]
+# Voice interaction is API-based (Whisper/TTS over HTTP) and needs no extra
+# packages today; this extra is reserved for future local STT/TTS backends.
+voice = []
 
 [tool.setuptools.packages.find]
 where = ["."]
