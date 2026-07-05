@@ -11,7 +11,9 @@ dashboard). APEX upgrades over ungoverned agents:
   ``AgentConfig.auto_skill_min_steps``);
 * evolution cycles happen automatically — every
   ``AgentConfig.auto_cycle_every`` turns a knowledge-informed MAPE-K cycle
-  runs without being asked (audit-logged, 0 disables);
+  runs without being asked, folding new knowledge into the wiki and
+  evolving the system (audit-logged, 0 disables). The operator only has
+  to talk;
 * conversation insights are dropped into the knowledge ``raw/`` folder so
   the KnowledgeBridge can turn chat learnings into evolution signals.
 """
@@ -169,13 +171,16 @@ class AgentLoop:
         )
 
     def _auto_run_cycle(self, executed: list[str]) -> str | None:
-        """Run a knowledge-informed evolution cycle automatically.
+        """Run knowledge maintenance and evolution automatically.
 
-        Cycles happen on their own: every ``config.auto_cycle_every``
-        turns the loop runs one knowledge-informed MAPE-K cycle so the
-        system keeps evolving without being asked (0 disables). Skipped
-        when the model already ran a cycle itself this turn. Every
-        automatic cycle lands on the audit ledger.
+        Everything happens on its own — the operator only has to talk.
+        Every ``config.auto_cycle_every`` turns the loop runs one
+        knowledge-informed MAPE-K cycle, which folds new raw/ material
+        into the wiki, turns knowledge signals into evolution candidates,
+        evolves under full governance, and records the outcome back into
+        the knowledge base (0 disables). Skipped when the model already
+        ran a cycle itself this turn. Every automatic cycle lands on the
+        audit ledger.
         """
         every = self.config.auto_cycle_every
         if every <= 0 or self._turns % every != 0:

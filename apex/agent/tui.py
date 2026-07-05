@@ -265,10 +265,10 @@ class ChatShell:
         )
         print(f"{_EMERALD_DEEP}└{'─' * _PANEL_WIDTH}┘{_RESET}")
         print()
-        print("Welcome to APEX! Type your message or /help for commands.")
+        print("Welcome to APEX! Just talk — everything else is automatic.")
         print(
-            f"{_DIM}✦ Tip: APEX grows with you — /insight records ideas, "
-            f"/cycle evolves the system.{_RESET}"
+            f"{_DIM}✦ APEX grows with you on its own: skills, memory and "
+            f"evolution cycles all happen automatically as you chat.{_RESET}"
         )
 
     def run(self) -> int:
@@ -312,6 +312,11 @@ class ChatShell:
                 continue
             for name in turn.tool_calls:
                 print(f"{_DIM}⚙ {name}{_RESET}")
+            if turn.auto_cycle_severity is not None:
+                print(
+                    f"{_DIM}✦ auto-cycle ran "
+                    f"(severity={turn.auto_cycle_severity}){_RESET}"
+                )
             print(f"{_GREEN}apex ▸ {_RESET}{turn.reply}")
             self._maybe_speak(turn.reply)
 

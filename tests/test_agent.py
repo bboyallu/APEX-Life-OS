@@ -399,6 +399,43 @@ def test_agent_auto_skill_disabled_by_config(agent):
     assert not system.audit_ledger.read_by_type("skill_autolearned")
 
 
+def test_agent_auto_runs_cycle_every_n_turns(agent):
+    loop, system, _, _ = agent(
+        [text_response("one"), text_response("two"), text_response("three")]
+    )
+    loop.config.auto_cycle_every = 3
+    turn1 = loop.send("hi")
+    turn2 = loop.send("hello")
+    assert turn1.auto_cycle_severity is None
+    assert turn2.auto_cycle_severity is None
+    assert not system.audit_ledger.read_by_type("cycle_autorun")
+    turn3 = loop.send("how are you")
+    assert turn3.auto_cycle_severity is not None
+    events = system.audit_ledger.read_by_type("cycle_autorun")
+    assert events and events[-1].payload["turn"] == 3
+
+
+def test_agent_auto_cycle_disabled_by_config(agent):
+    loop, system, _, _ = agent([text_response("ok")])
+    loop.config.auto_cycle_every = 0
+    turn = loop.send("hi")
+    assert turn.auto_cycle_severity is None
+    assert not system.audit_ledger.read_by_type("cycle_autorun")
+
+
+def test_agent_auto_cycle_skipped_when_model_ran_one(agent):
+    loop, system, _, _ = agent(
+        [
+            tool_response("run_evolution_cycle", {}),
+            text_response("cycle done"),
+        ]
+    )
+    loop.config.auto_cycle_every = 1
+    turn = loop.send("evolve yourself")
+    assert turn.auto_cycle_severity is None
+    assert not system.audit_ledger.read_by_type("cycle_autorun")
+
+
 def test_record_insight_feeds_knowledge_raw(agent, tmp_path):
     loop, _, _, _ = agent([])
     path = loop.record_insight("signal: api :: too slow [degraded]")
