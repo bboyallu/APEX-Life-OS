@@ -31,6 +31,12 @@ from apex.system import ApexSystem
 #: Tools that manage skills themselves — never distilled into a new skill.
 _SKILL_MANAGEMENT_TOOLS = frozenset({"save_skill", "use_skill"})
 
+#: Auto-learned skill names keep at most this many words of the request.
+_MAX_SKILL_NAME_WORDS = 8
+
+#: Rendered tool arguments in auto-learned skill steps are capped at this.
+_MAX_ARGS_LENGTH = 120
+
 SYSTEM_PROMPT = """\
 You are APEX, a self-evolving personal AI assistant. You grow with your \
 operator: you save skills from experience, persist important facts to \
@@ -229,7 +235,7 @@ class AgentLoop:
 def _skill_name(user_text: str) -> str:
     """Derive a short, stable skill name from the user's request."""
     words = user_text.strip().split()
-    return " ".join(words[:8]) or "learned procedure"
+    return " ".join(words[:_MAX_SKILL_NAME_WORDS]) or "learned procedure"
 
 
 def _compact_args(args: dict) -> str:
@@ -238,4 +244,6 @@ def _compact_args(args: dict) -> str:
         rendered = json.dumps(args, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
         rendered = str(args)
-    return rendered if len(rendered) <= 120 else rendered[:117] + "..."
+    if len(rendered) <= _MAX_ARGS_LENGTH:
+        return rendered
+    return rendered[: _MAX_ARGS_LENGTH - 3] + "..."
