@@ -265,7 +265,7 @@ class KnowledgeVault:
         lines = [
             f"# {article.title}",
             "",
-            "> Compiled automatically by APEX. Do not edit by hand.",
+            "> Compiled automatically by APEX. Do not edit files here by hand.",
             "",
         ]
         for rel in article.sources:
