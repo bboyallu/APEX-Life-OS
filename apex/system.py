@@ -10,6 +10,7 @@ Usage::
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from apex.alerts.channels import AlertChannels
@@ -74,7 +75,7 @@ class ApexSystem:
         on_plan_generated: Callable[[AdaptationPlan], bool] | None = None,
         dead_man_timeout_seconds: int = 900,
         memory_provider: MemoryProvider | None = None,
-        knowledge_root: str = ".",
+        knowledge_root: str | Path = ".",
     ) -> None:
         # Core
         self.knowledge_base = KnowledgeBase()
