@@ -200,16 +200,16 @@ system.forget_memory(entry.entry_id)                    # True
 
 ## Knowledge Base (raw / wiki / outputs)
 
-The repository also hosts an AI-maintained personal knowledge base, defined by the schema in [`CLAUDE.md`](CLAUDE.md):
+The repository also hosts an AI-maintained personal knowledge base, defined by the schema in [`KNOWLEDGE_BASE.md`](KNOWLEDGE_BASE.md):
 
 | Path | Role |
 |---|---|
 | [`raw/`](raw/) | The "junk drawer" — continuously drop unorganized articles, files, transcripts, and notes here. |
 | [`wiki/`](wiki/) | The organized knowledge base, written and updated automatically by the AI. **Never edited by hand.** |
 | [`outputs/`](outputs/) | Custom summaries, briefings, and answers generated on demand. |
-| [`CLAUDE.md`](CLAUDE.md) | The system schema file instructing the AI how to handle the data. |
+| [`KNOWLEDGE_BASE.md`](KNOWLEDGE_BASE.md) | The system schema file instructing the AI how to handle the data. |
 
-Core functions: automated organization, content processing, intelligent cross-referencing, wiki compilation, and on-demand report generation. See [`CLAUDE.md`](CLAUDE.md) for the full processing rules.
+Core functions: automated organization, content processing, intelligent cross-referencing, wiki compilation, and on-demand report generation. See [`KNOWLEDGE_BASE.md`](KNOWLEDGE_BASE.md) for the full processing rules.
 
 ---
 

@@ -1,4 +1,4 @@
-# CLAUDE.md — Knowledge Base System Schema
+# KNOWLEDGE_BASE.md — Knowledge Base System Schema
 
 This file is the schema for an AI-maintained personal knowledge base.
 It instructs the AI (Claude or any capable agent) on how to ingest,
@@ -14,7 +14,7 @@ The system consists of three folders and this schema file:
 | `raw/` | The "junk drawer". Unorganized articles, files, transcripts, and notes are continuously dropped here. | Human |
 | `wiki/` | The organized, curated version of the knowledge base. | **AI only — never edited by hand** |
 | `outputs/` | Custom summaries, briefings, and answers generated on demand. | AI, in response to queries |
-| `CLAUDE.md` | This schema file. | Human |
+| `KNOWLEDGE_BASE.md` | This schema file. | Human |
 
 ## Core Functions
 

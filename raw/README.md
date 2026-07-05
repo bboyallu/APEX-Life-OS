@@ -6,4 +6,4 @@ Drop any unorganized articles, files, transcripts, and notes here.
 - Files here are never edited by the AI — they are immutable input.
 - The AI reads this folder and compiles its contents into `../wiki/`.
 
-See [`../CLAUDE.md`](../CLAUDE.md) for the full system schema.
+See [`../KNOWLEDGE_BASE.md`](../KNOWLEDGE_BASE.md) for the full system schema.
