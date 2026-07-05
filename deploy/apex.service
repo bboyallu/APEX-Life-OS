@@ -1,0 +1,14 @@
+[Unit]
+Description=APEX Life OS — self-evolving AI system daemon
+After=network.target
+
+[Service]
+Type=simple
+User={{SERVICE_USER}}
+WorkingDirectory={{REPO_DIR}}
+ExecStart={{VENV_DIR}}/bin/apex --knowledge-root {{REPO_DIR}} daemon
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

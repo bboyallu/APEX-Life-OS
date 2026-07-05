@@ -1,0 +1,9 @@
+services:
+  apex:
+    build: .
+    container_name: apex
+    restart: unless-stopped
+    volumes:
+      - ./raw:/data/raw
+      - ./wiki:/data/wiki
+      - ./outputs:/data/outputs

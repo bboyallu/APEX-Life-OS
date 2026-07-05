@@ -49,6 +49,50 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 
 ## Quick Start
 
+### Install on a VPS (one command)
+
+On any Linux server with Python 3.11+:
+
+```bash
+git clone https://github.com/bboyallu/APEX-Life-OS.git
+cd APEX-Life-OS
+./install.sh
+```
+
+This creates a virtual environment in `.venv`, installs the package, and gives you the `apex` command:
+
+```bash
+.venv/bin/apex --version
+.venv/bin/apex cycle                       # run one MAPE-K adaptation cycle
+.venv/bin/apex process-knowledge           # fold raw/ into the wiki/
+.venv/bin/apex report "what do my notes say about deep work?"
+.venv/bin/apex verify-audit                # check audit chain integrity
+.venv/bin/apex daemon --interval 300       # run continuously
+```
+
+To run APEX as a background service that starts on boot (systemd):
+
+```bash
+./install.sh --with-service    # requires sudo
+sudo systemctl status apex     # check it's running
+journalctl -u apex -f          # follow the logs
+```
+
+The service template lives in [`deploy/apex.service`](deploy/apex.service) if you want to customize it.
+
+### Install with Docker
+
+```bash
+git clone https://github.com/bboyallu/APEX-Life-OS.git
+cd APEX-Life-OS
+docker compose up -d           # builds and runs the daemon
+docker compose logs -f apex    # follow the logs
+```
+
+The container mounts `raw/`, `wiki/`, and `outputs/` from the repository directory, so you can keep dropping files into `raw/` from the host.
+
+### Use as a library
+
 ```python
 from apex import ApexSystem
 from apex.mape.analyzer import SignalRule
@@ -281,6 +325,8 @@ pytest --cov=apex --cov-report=term-missing
 ```
 apex/
   __init__.py          # ApexSystem façade
+  __main__.py          # python -m apex
+  cli.py               # `apex` command-line interface
   system.py            # Top-level wiring
   core/                # Types + KnowledgeBase
   mape/                # Monitor, Analyzer, Planner, Executor, MAPELoop
