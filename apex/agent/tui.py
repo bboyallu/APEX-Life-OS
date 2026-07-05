@@ -22,13 +22,42 @@ from apex.agent.skills import SkillStore
 from apex.agent.tools import build_default_tools
 from apex.core.types import ThresholdLevel
 from apex.system import ApexSystem
+from apex import __version__
 
 _BOLD = "\033[1m"
 _DIM = "\033[2m"
 _CYAN = "\033[36m"
 _GREEN = "\033[32m"
 _YELLOW = "\033[33m"
+_BRIGHT_YELLOW = "\033[93m"
+_ORANGE = "\033[38;5;208m"
 _RESET = "\033[0m"
+
+# Big pixel-style wordmark, shaded top-to-bottom like a sunset gradient.
+_LOGO_ROWS = (
+    (_BRIGHT_YELLOW, " █████╗ ██████╗ ███████╗██╗  ██╗"),
+    (_BRIGHT_YELLOW, "██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝"),
+    (_YELLOW, "███████║██████╔╝█████╗   ╚███╔╝ "),
+    (_YELLOW, "██╔══██║██╔═══╝ ██╔══╝   ██╔██╗ "),
+    (_ORANGE, "██║  ██║██║     ███████╗██╔╝ ██╗"),
+    (_ORANGE, "╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝"),
+)
+
+# Display grouping for the banner; unknown tools land in "other".
+_TOOL_GROUPS = {
+    "search_knowledge": "knowledge",
+    "generate_report": "knowledge",
+    "remember": "memory",
+    "search_memories": "memory",
+    "publish_metric": "evolution",
+    "run_evolution_cycle": "evolution",
+    "run_shell": "shell",
+    "save_skill": "skills",
+    "use_skill": "skills",
+    "search_past_conversations": "sessions",
+}
+
+_PANEL_WIDTH = 72
 
 HELP = f"""{_BOLD}Slash commands{_RESET}
   /new              start a new session
@@ -67,6 +96,7 @@ class ChatShell:
         client: LLMClient | None = None,
     ) -> None:
         self.config = config or load_config()
+        self.knowledge_root = Path(knowledge_root).resolve()
         self.system = system or ApexSystem(knowledge_root=knowledge_root)
         self.sessions = session_store or SessionStore()
         self.skills = SkillStore(audit_ledger=self.system.audit_ledger)
@@ -177,12 +207,67 @@ class ChatShell:
         except Exception as exc:  # noqa: BLE001 — voice is best-effort
             print(f"{_DIM}(voice unavailable: {exc}){_RESET}")
 
-    def run(self) -> int:
-        print(f"{_BOLD}APEX{_RESET} — the agent that grows with you, safely.")
+    def _grouped_tools(self) -> dict[str, list[str]]:
+        groups: dict[str, list[str]] = {}
+        for name in sorted(self.loop.tools.tools):
+            groups.setdefault(_TOOL_GROUPS.get(name, "other"), []).append(name)
+        return groups
+
+    def print_banner(self) -> None:
+        """Print the Hermes-style startup banner."""
+        print()
+        for color, row in _LOGO_ROWS:
+            print(f"  {color}{_BOLD}{row}{_RESET}")
+        print()
+
+        groups = self._grouped_tools()
+        tool_count = sum(len(names) for names in groups.values())
+        skills = self.skills.list()
+
+        title = f" APEX Life OS v{__version__} · self-evolving agent "
+        pad = _PANEL_WIDTH - len(title)
+        left = pad // 2
         print(
-            f"{_DIM}model {self.config.provider}:{self.config.resolved_model()}"
-            f" · /help for commands{_RESET}"
+            f"{_ORANGE}┌{'─' * left}{_RESET}{_BOLD}{_BRIGHT_YELLOW}{title}"
+            f"{_RESET}{_ORANGE}{'─' * (pad - left)}┐{_RESET}"
         )
+
+        def panel(text: str = "") -> None:
+            print(f"{_ORANGE}│{_RESET} {text}")
+
+        panel(f"{_BOLD}{_BRIGHT_YELLOW}Available Tools{_RESET}")
+        for group in sorted(groups):
+            names = ", ".join(groups[group])
+            panel(f"  {_ORANGE}{group}:{_RESET} {names}")
+        panel()
+        panel(f"{_BOLD}{_BRIGHT_YELLOW}Available Skills{_RESET}")
+        if skills:
+            for skill in skills:
+                panel(f"  {_ORANGE}{skill.name}:{_RESET} {skill.description}")
+        else:
+            panel(f"  {_DIM}none saved yet — ask APEX to save one{_RESET}")
+        panel()
+        panel(
+            f"{_DIM}model:{_RESET} {_YELLOW}"
+            f"{self.config.provider}:{self.config.resolved_model()}{_RESET}"
+        )
+        panel(f"{_DIM}root:  {self.knowledge_root}{_RESET}")
+        panel(f"{_DIM}session: {self.loop.session_id}{_RESET}")
+        panel()
+        panel(
+            f"{_DIM}{tool_count} tools · {len(skills)} skills · "
+            f"/help for commands{_RESET}"
+        )
+        print(f"{_ORANGE}└{'─' * _PANEL_WIDTH}┘{_RESET}")
+        print()
+        print("Welcome to APEX! Type your message or /help for commands.")
+        print(
+            f"{_DIM}✦ Tip: APEX grows with you — /insight records ideas, "
+            f"/cycle evolves the system.{_RESET}"
+        )
+
+    def run(self) -> int:
+        self.print_banner()
         if not self.config.api_key:
             print(
                 f"{_YELLOW}warning: APEX_API_KEY is not set — chat will fail "
