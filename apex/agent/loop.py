@@ -9,6 +9,9 @@ dashboard). APEX upgrades over ungoverned agents:
 * multi-step tool turns are distilled into reusable skills autonomously —
   no human prompt needed (audit-logged, tunable via
   ``AgentConfig.auto_skill_min_steps``);
+* evolution cycles happen automatically — every
+  ``AgentConfig.auto_cycle_every`` turns a knowledge-informed MAPE-K cycle
+  runs without being asked (audit-logged, 0 disables);
 * conversation insights are dropped into the knowledge ``raw/`` folder so
   the KnowledgeBridge can turn chat learnings into evolution signals.
 """
@@ -60,6 +63,8 @@ class AgentTurn(BaseModel):
 
     reply: str = ""
     tool_calls: list[str] = Field(default_factory=list)
+    #: Severity of the automatic evolution cycle run this turn, if any.
+    auto_cycle_severity: str | None = None
 
 
 class AgentLoop:
@@ -147,6 +152,7 @@ class AgentLoop:
 
         self.sessions.add_message(self.session_id, "assistant", reply)
         self._auto_learn_skill(user_text, call_log)
+        cycle_severity = self._auto_run_cycle(executed)
         self.system.audit_ledger.append(
             "agent_turn",
             actor=f"agent:{self.channel}",
@@ -156,7 +162,41 @@ class AgentLoop:
                 "chars": len(reply),
             },
         )
-        return AgentTurn(reply=reply, tool_calls=executed)
+        return AgentTurn(
+            reply=reply,
+            tool_calls=executed,
+            auto_cycle_severity=cycle_severity,
+        )
+
+    def _auto_run_cycle(self, executed: list[str]) -> str | None:
+        """Run a knowledge-informed evolution cycle automatically.
+
+        Cycles happen on their own: every ``config.auto_cycle_every``
+        turns the loop runs one knowledge-informed MAPE-K cycle so the
+        system keeps evolving without being asked (0 disables). Skipped
+        when the model already ran a cycle itself this turn. Every
+        automatic cycle lands on the audit ledger.
+        """
+        every = self.config.auto_cycle_every
+        if every <= 0 or self._turns % every != 0:
+            return None
+        if "run_evolution_cycle" in executed:
+            return None  # the model already ran a cycle this turn
+        try:
+            report = self.system.run_knowledge_informed_cycle()
+        except Exception:  # noqa: BLE001 — cycles are best-effort
+            return None
+        severity = report.overall_severity.value
+        self.system.audit_ledger.append(
+            "cycle_autorun",
+            actor=f"agent:{self.channel}",
+            payload={
+                "session": self.session_id,
+                "turn": self._turns,
+                "severity": severity,
+            },
+        )
+        return severity
 
     def _auto_learn_skill(
         self, user_text: str, call_log: list[tuple[str, dict]]

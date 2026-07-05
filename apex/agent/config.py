@@ -66,6 +66,9 @@ class AgentConfig(BaseModel):
     #: Auto-save a skill after any turn that executed at least this many
     #: substantive tool calls (0 disables autonomous skill learning).
     auto_skill_min_steps: int = 2
+    #: Automatically run a knowledge-informed evolution cycle every this
+    #: many conversation turns (0 disables automatic cycles).
+    auto_cycle_every: int = 10
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
 
     @property
