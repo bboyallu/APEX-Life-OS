@@ -28,6 +28,8 @@ apex audit --verify                             # prove the log wasn't tampered 
 apex doctor                                     # diagnose configuration
 ```
 
+Replies stream token-by-token in `apex chat` with Anthropic and OpenAI-compatible backends.
+
 Or with Docker: `docker build -t apex . && docker run -it -v apex-data:/data apex`.
 
 ### What the agent can do

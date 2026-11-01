@@ -40,7 +40,19 @@ def _show_event(ev: ToolEvent) -> None:
     print(_c("2", f"  {mark} {ev.name}({args}) [{ev.level}]"), file=sys.stderr)
 
 
-def build_agent(args: argparse.Namespace, *, interactive: bool) -> Agent:
+class _Streamer:
+    """Writes streamed text and remembers whether anything was printed."""
+
+    def __init__(self) -> None:
+        self.active = False
+
+    def __call__(self, chunk: str) -> None:
+        self.active = True
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+
+def build_agent(args: argparse.Namespace, *, interactive: bool, on_text=None) -> Agent:
     provider = create_provider(args.provider, model=args.model)
     if args.yes:
         approver = lambda req: req.level.value != "L4"  # noqa: E731
@@ -57,6 +69,7 @@ def build_agent(args: argparse.Namespace, *, interactive: bool) -> Agent:
         session=getattr(args, "session", None),
         max_steps=args.max_steps,
         on_event=_show_event if not getattr(args, "json", False) else None,
+        on_text=on_text,
     )
 
 
@@ -68,7 +81,8 @@ CHAT_HELP = """\
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
-    agent = build_agent(args, interactive=True)
+    stream = _Streamer()
+    agent = build_agent(args, interactive=True, on_text=stream)
     print(_c("1", f"APEX Life OS {apex.__version__}") + f" — provider: {agent.provider.name} ({agent.provider.model})")
     print("Type /help for commands, /exit to quit.\n")
     while True:
@@ -99,12 +113,16 @@ def cmd_chat(args: argparse.Namespace) -> int:
             else:
                 print(f"Unknown command {cmd}. /help lists commands.")
             continue
+        stream.active = False
+        print(_c("32", "apex ▸ "), end="", flush=True)
         try:
             res = agent.run(line)
         except KeyboardInterrupt:
             print("\n(interrupted)")
             continue
-        print(_c("32", "apex ▸ ") + res.text + "\n")
+        if not stream.active or res.error:
+            print(res.text, end="")
+        print("\n")
 
 
 def cmd_ask(args: argparse.Namespace) -> int:

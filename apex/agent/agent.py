@@ -93,6 +93,7 @@ class Agent:
         max_steps: int = 10,
         session: str | None = None,
         on_event: Callable[[ToolEvent], None] | None = None,
+        on_text: Callable[[str], None] | None = None,
     ) -> None:
         self.workspace = workspace or Workspace()
         self.system = system or ApexSystem(
@@ -104,6 +105,7 @@ class Agent:
         self.max_steps = max_steps
         self.session = session
         self.on_event = on_event
+        self.on_text = on_text
         self.history: list[Message] = (
             self.workspace.load_session(session) if session else []
         )
@@ -211,7 +213,8 @@ class Agent:
         try:
             for step in range(1, self.max_steps + 1):
                 result.steps = step
-                resp = self.provider.complete(self.system_prompt(), self.history, specs)
+                kw = {"on_text": self.on_text} if self.on_text else {}
+                resp = self.provider.complete(self.system_prompt(), self.history, specs, **kw)
                 result.usage.add(resp.usage)
                 self.total_usage.add(resp.usage)
                 self.history.append(

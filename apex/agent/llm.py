@@ -22,7 +22,7 @@ import urllib.error
 import urllib.request
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from apex.agent.messages import LLMResponse, Message, ToolCall, ToolSpec, Usage
 
@@ -31,6 +31,12 @@ DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
 #: ``(url, headers, body, timeout) -> (status, response_bytes)``
 Transport = Callable[[str, dict[str, str], bytes, float], tuple[int, bytes]]
+
+
+#: Same as :data:`Transport` but returns the body as an iterator of lines.
+StreamTransport = Callable[[str, dict[str, str], bytes, float], tuple[int, Iterator[bytes]]]
+
+TextCallback = Callable[[str], None]
 
 
 class LLMError(RuntimeError):
@@ -50,6 +56,42 @@ def urllib_transport(
         raise ConnectionError(str(exc)) from exc
 
 
+def urllib_stream_transport(
+    url: str, headers: dict[str, str], body: bytes, timeout: float
+) -> tuple[int, Iterator[bytes]]:
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        return exc.code, iter([exc.read()])
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+        raise ConnectionError(str(exc)) from exc
+
+    def lines() -> Iterator[bytes]:
+        try:
+            with resp:
+                yield from resp
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            raise ConnectionError(str(exc)) from exc
+
+    return resp.status, lines()
+
+
+def _sse_events(lines: Iterator[bytes]) -> Iterator[dict[str, Any]]:
+    """Parse Server-Sent Events ``data:`` lines into JSON objects."""
+    for raw in lines:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            return
+        try:
+            yield json.loads(data)
+        except ValueError:
+            continue
+
+
 class LLMProvider(ABC):
     """Abstract chat-completion backend with tool calling."""
 
@@ -58,9 +100,17 @@ class LLMProvider(ABC):
 
     @abstractmethod
     def complete(
-        self, system: str, messages: list[Message], tools: list[ToolSpec]
+        self,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        on_text: TextCallback | None = None,
     ) -> LLMResponse:
-        """Return the model's next turn."""
+        """Return the model's next turn.
+
+        If ``on_text`` is given the provider streams text deltas to it as they
+        arrive; the returned response is always the complete turn.
+        """
 
 
 class _HTTPProvider(LLMProvider):
@@ -74,6 +124,7 @@ class _HTTPProvider(LLMProvider):
         timeout: float = 120.0,
         max_retries: int = 3,
         transport: Transport | None = None,
+        stream_transport: StreamTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.api_key = api_key
@@ -83,6 +134,7 @@ class _HTTPProvider(LLMProvider):
         self.timeout = timeout
         self.max_retries = max_retries
         self._transport = transport or urllib_transport
+        self._stream_transport = stream_transport or urllib_stream_transport
         self._sleep = sleep
 
     def _post(self, path: str, headers: dict[str, str], payload: dict[str, Any]) -> dict:
@@ -104,6 +156,38 @@ class _HTTPProvider(LLMProvider):
                 last = f"HTTP {status}: {raw[:300].decode(errors='replace')}"
                 if status not in (408, 409, 429) and status < 500:
                     raise LLMError(last)  # non-retryable (auth, bad request, …)
+            if attempt < self.max_retries:
+                self._sleep(min(2**attempt, 20))
+        raise LLMError(f"{self.name} request failed after retries — {last}")
+
+    def _post_stream(
+        self, path: str, headers: dict[str, str], payload: dict[str, Any]
+    ) -> Iterator[dict[str, Any]]:
+        """POST with ``stream: true`` and yield SSE events.
+
+        Connection setup is retried like :meth:`_post`; once bytes are flowing
+        a mid-stream failure raises :class:`LLMError` (a partial turn cannot be
+        safely replayed).
+        """
+        url = f"{self.base_url}{path}"
+        body = json.dumps({**payload, "stream": True}).encode()
+        headers = {"content-type": "application/json", **headers}
+        last = "unknown error"
+        for attempt in range(self.max_retries + 1):
+            try:
+                status, lines = self._stream_transport(url, headers, body, self.timeout)
+            except ConnectionError as exc:
+                last = f"network error: {exc}"
+            else:
+                if status == 200:
+                    try:
+                        yield from _sse_events(lines)
+                    except ConnectionError as exc:
+                        raise LLMError(f"{self.name} stream interrupted: {exc}") from exc
+                    return
+                last = f"HTTP {status}: {b''.join(lines)[:300].decode(errors='replace')}"
+                if status not in (408, 409, 429) and status < 500:
+                    raise LLMError(last)
             if attempt < self.max_retries:
                 self._sleep(min(2**attempt, 20))
         raise LLMError(f"{self.name} request failed after retries — {last}")
@@ -159,7 +243,7 @@ class AnthropicProvider(_HTTPProvider):
                 )
         return out
 
-    def complete(self, system, messages, tools):
+    def complete(self, system, messages, tools, on_text=None):
         payload: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -171,11 +255,10 @@ class AnthropicProvider(_HTTPProvider):
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
                 for t in tools
             ]
-        data = self._post(
-            "/v1/messages",
-            {"x-api-key": self.api_key or "", "anthropic-version": "2023-06-01"},
-            payload,
-        )
+        headers = {"x-api-key": self.api_key or "", "anthropic-version": "2023-06-01"}
+        if on_text is not None:
+            return self._stream(headers, payload, on_text)
+        data = self._post("/v1/messages", headers, payload)
         text, calls = [], []
         for block in data.get("content", []):
             if block.get("type") == "text":
@@ -191,6 +274,41 @@ class AnthropicProvider(_HTTPProvider):
             stop_reason=data.get("stop_reason", "end_turn"),
             usage=Usage(u.get("input_tokens", 0), u.get("output_tokens", 0)),
         )
+
+
+    def _stream(self, headers, payload, on_text) -> LLMResponse:
+        text: list[str] = []
+        blocks: dict[int, dict[str, Any]] = {}
+        stop, usage = "end_turn", Usage()
+        for ev in self._post_stream("/v1/messages", headers, payload):
+            kind = ev.get("type")
+            if kind == "message_start":
+                usage.input_tokens = ev.get("message", {}).get("usage", {}).get("input_tokens", 0)
+            elif kind == "content_block_start":
+                b = ev.get("content_block", {})
+                if b.get("type") == "tool_use":
+                    blocks[ev["index"]] = {"id": b["id"], "name": b["name"], "json": ""}
+            elif kind == "content_block_delta":
+                d = ev.get("delta", {})
+                if d.get("type") == "text_delta":
+                    text.append(d.get("text", ""))
+                    on_text(d.get("text", ""))
+                elif d.get("type") == "input_json_delta" and ev.get("index") in blocks:
+                    blocks[ev["index"]]["json"] += d.get("partial_json", "")
+            elif kind == "message_delta":
+                stop = ev.get("delta", {}).get("stop_reason") or stop
+                usage.output_tokens = ev.get("usage", {}).get("output_tokens", usage.output_tokens)
+            elif kind == "error":
+                raise LLMError(f"anthropic stream error: {ev.get('error', {}).get('message', ev)}")
+        calls = []
+        for i in sorted(blocks):
+            b = blocks[i]
+            try:
+                args = json.loads(b["json"] or "{}")
+            except ValueError:
+                args = {}
+            calls.append(ToolCall(b["id"], b["name"], args))
+        return LLMResponse("".join(text).strip(), calls, stop, usage)
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +353,7 @@ class OpenAICompatProvider(_HTTPProvider):
                 ]
         return out
 
-    def complete(self, system, messages, tools):
+    def complete(self, system, messages, tools, on_text=None):
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": self._encode(system, messages),
@@ -254,6 +372,8 @@ class OpenAICompatProvider(_HTTPProvider):
                 for t in tools
             ]
         headers = {"authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        if on_text is not None:
+            return self._stream(headers, payload, on_text)
         data = self._post("/chat/completions", headers, payload)
         try:
             choice = data["choices"][0]
@@ -276,11 +396,58 @@ class OpenAICompatProvider(_HTTPProvider):
         )
 
 
+    def _stream(self, headers, payload, on_text) -> LLMResponse:
+        payload = {**payload, "stream_options": {"include_usage": True}}
+        text: list[str] = []
+        calls: dict[int, dict[str, str]] = {}
+        stop, usage = "stop", Usage()
+        for ev in self._post_stream("/chat/completions", headers, payload):
+            if u := ev.get("usage"):
+                usage = Usage(u.get("prompt_tokens", 0), u.get("completion_tokens", 0))
+            for choice in ev.get("choices") or []:
+                d = choice.get("delta") or {}
+                if d.get("content"):
+                    text.append(d["content"])
+                    on_text(d["content"])
+                for tc in d.get("tool_calls") or []:
+                    c = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "args": ""})
+                    c["id"] = tc.get("id") or c["id"]
+                    fn = tc.get("function") or {}
+                    c["name"] = fn.get("name") or c["name"]
+                    c["args"] += fn.get("arguments") or ""
+                stop = choice.get("finish_reason") or stop
+        out = []
+        for i in sorted(calls):
+            c = calls[i]
+            try:
+                args = json.loads(c["args"] or "{}")
+            except ValueError:
+                args = {}
+            out.append(ToolCall(c["id"] or uuid.uuid4().hex, c["name"], args))
+        return LLMResponse("".join(text).strip(), out, stop, usage)
+
+
 # ---------------------------------------------------------------------------
 # Offline provider
 # ---------------------------------------------------------------------------
 
 _MATH_RE = re.compile(r"^[\d\s+\-*/().%^,a-z_]+$", re.I)
+
+_WORD_OPS = [
+    (r"\bto the power of\b", "**"), (r"\bsquared\b", "**2"), (r"\bcubed\b", "**3"),
+    (r"\b(?:plus|and)\b", "+"), (r"\bminus\b", "-"), (r"\b(?:times|multiplied by|x)\b", "*"),
+    (r"\b(?:divided by|over)\b", "/"), (r"\bmod(?:ulo)?\b", "%"),
+]
+
+
+def _normalise_math(text: str) -> str:
+    """Turn '18% of 2450', '5 plus 3', '7 squared' into evaluable expressions."""
+    t = text.strip().lower().replace(",", "")
+    if m := re.fullmatch(r"([\d.]+)\s*%\s*of\s*([\d.]+)", t):
+        return f"{m.group(1)}/100*{m.group(2)}"
+    for pat, rep in _WORD_OPS:
+        t = re.sub(pat, rep, t)
+    return t.replace("^", "**")
 
 HELP_TEXT = (
     "I'm running in offline mode (no API key found), so I understand simple "
@@ -304,7 +471,13 @@ class LocalProvider(LLMProvider):
     name = "local"
     model = "offline-rules"
 
-    def complete(self, system, messages, tools):
+    def complete(self, system, messages, tools, on_text=None):
+        resp = self._complete(messages, tools)
+        if on_text and resp.text:
+            on_text(resp.text)
+        return resp
+
+    def _complete(self, messages, tools) -> LLMResponse:
         if not messages:
             return LLMResponse(text=HELP_TEXT)
         last = messages[-1]
@@ -344,9 +517,16 @@ class LocalProvider(LLMProvider):
         ):
             if has("recall"):
                 return self._call("recall", query=m.group(1).strip())
-        if m := re.match(r"(?:add (?:a )?task|todo|add todo|remind me to)[:\s]+(.+)", t, re.I):
+        if m := re.match(r"(?:add|put)\s+(.+?)\s+(?:to|on)\s+my\s+(?:todo|to-do|task)s?(?:\s+list)?$", t, re.I):
             if has("add_task"):
                 return self._call("add_task", title=m.group(1))
+        if m := re.match(r"(?:add (?:a )?task|todo|add todo|remind me to|i need to|i have to|don't forget to)[:\s]+(.+)", t, re.I):
+            if has("add_task"):
+                return self._call("add_task", title=m.group(1))
+        m = re.match(r"(?:what(?:'s| is) my|do you know my)\s+(.+)", t, re.I)
+        if m and has("recall"):
+            if not re.match(r"(?:tasks?|todos?)", m.group(1), re.I):
+                return self._call("recall", query=m.group(1).split()[-1])
         if m := re.match(r"(?:done|complete|finish)(?: task)?\s+#?(\d+)", t, re.I):
             if has("complete_task"):
                 return self._call("complete_task", task_id=int(m.group(1)))
@@ -364,9 +544,10 @@ class LocalProvider(LLMProvider):
             return self._call("current_time")
         if re.match(r"(?:system )?(?:status|health)", low) and has("system_status"):
             return self._call("system_status")
-        expr = re.sub(r"^(?:calculate|calc|compute|what is|what's|whats|eval)\s+", "", t, flags=re.I)
+        expr = re.sub(r"^(?:calculate|calc|compute|what is|what's|whats|how much is|eval)\s+", "", t, flags=re.I)
+        expr = _normalise_math(expr)
         if has("calculate") and any(c.isdigit() for c in expr) and _MATH_RE.match(expr):
-            return self._call("calculate", expression=expr.replace("^", "**"))
+            return self._call("calculate", expression=expr)
         return None
 
 
