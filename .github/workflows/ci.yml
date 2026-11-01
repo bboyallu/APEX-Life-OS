@@ -23,3 +23,8 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Run tests
         run: pytest --cov=apex --cov-report=term-missing
+      - name: CLI smoke test
+        run: |
+          export APEX_HOME="$(mktemp -d)"
+          apex ask "calculate 6*7" | grep -q 42
+          apex audit --verify

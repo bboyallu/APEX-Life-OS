@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apex-life-os"
-version = "0.1.0"
+version = "1.0.0"
 description = "APEX Self-Evolving AI System — a MAPE-K-based autonomic platform with neuro-symbolic reasoning, decision orchestration, and human oversight."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,9 @@ authors = [{ name = "bboyallu" }]
 dependencies = [
     "pydantic>=2.7",
 ]
+
+[project.scripts]
+apex = "apex.cli:main"
 
 [project.optional-dependencies]
 dev = [
