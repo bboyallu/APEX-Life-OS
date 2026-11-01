@@ -7,13 +7,20 @@ The user has read access to the full ledger at all times (§6.5).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+try:  # POSIX advisory locking; absent on Windows
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -65,6 +72,7 @@ class AuditLedger:
         self._entries: list[AuditEntry] = []
         self._genesis_hash = "0" * 64  # sentinel for the first entry
         self._path = Path(path) if path else None
+        self._offset = 0
         if self._path is not None:
             self._load()
 
@@ -72,32 +80,55 @@ class AuditLedger:
     # Persistence
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _parse(line: str) -> AuditEntry:
+        raw = json.loads(line)
+        return AuditEntry(
+            entry_id=raw["entry_id"],
+            timestamp=datetime.fromisoformat(raw["timestamp"]),
+            event_type=raw["event_type"],
+            actor=raw["actor"],
+            payload=raw["payload"],
+            signature=raw["signature"],
+            previous_hash=raw["previous_hash"],
+        )
+
     def _load(self) -> None:
+        self._offset = 0
+        self._sync_from_disk()
+
+    def _sync_from_disk(self) -> None:
+        """Ingest entries other processes appended since we last looked."""
         assert self._path is not None
         if not self._path.exists():
             return
-        for lineno, line in enumerate(
-            self._path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        with self._path.open("rb") as fh:
+            fh.seek(self._offset)
+            data = fh.read()
+        # Only consume complete lines; a trailing partial line is left for later.
+        end = data.rfind(b"\n") + 1
+        for line in data[:end].decode("utf-8").splitlines():
             if not line.strip():
                 continue
             try:
-                raw = json.loads(line)
-                self._entries.append(
-                    AuditEntry(
-                        entry_id=raw["entry_id"],
-                        timestamp=datetime.fromisoformat(raw["timestamp"]),
-                        event_type=raw["event_type"],
-                        actor=raw["actor"],
-                        payload=raw["payload"],
-                        signature=raw["signature"],
-                        previous_hash=raw["previous_hash"],
-                    )
-                )
+                self._entries.append(self._parse(line))
             except (ValueError, KeyError, TypeError) as exc:
-                raise ValueError(
-                    f"Corrupt audit ledger {self._path} at line {lineno}: {exc}"
-                ) from exc
+                raise ValueError(f"Corrupt audit ledger {self._path}: {exc}") from exc
+        self._offset += end
+
+    @contextlib.contextmanager
+    def _file_lock(self) -> Iterator[None]:
+        """Exclusive cross-process lock around read-tail + append."""
+        if self._path is None or fcntl is None:
+            yield
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._path.with_name(self._path.name + ".lock"), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
 
     def _persist(self, entry: AuditEntry) -> None:
         if self._path is None:
@@ -112,9 +143,13 @@ class AuditLedger:
             "signature": entry.signature,
             "previous_hash": entry.previous_hash,
         }
-        with self._path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, sort_keys=True) + "\n")
+        line = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
+        # Owner-only: the ledger can contain personal activity.
+        fd = os.open(self._path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "ab") as fh:
+            fh.write(line)
             fh.flush()
+        self._offset += len(line)
 
     # ------------------------------------------------------------------
     # Appending
@@ -131,7 +166,9 @@ class AuditLedger:
         """Append a new entry to the ledger."""
         import uuid
 
-        with self._lock:
+        with self._lock, self._file_lock():
+            if self._path is not None:
+                self._sync_from_disk()
             eid = entry_id or str(uuid.uuid4())
             timestamp = datetime.now(timezone.utc)
             prev_hash = (

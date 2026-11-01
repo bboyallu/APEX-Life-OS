@@ -230,18 +230,30 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _defaults() -> dict[str, object]:
+    return {
+        "provider": os.environ.get("APEX_PROVIDER", "auto"), "model": None,
+        "home": None, "workspace": None, "allow_shell": False, "yes": False,
+        "max_steps": 10,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--provider", default=os.environ.get("APEX_PROVIDER", "auto"),
-                        help="auto | anthropic | openai | ollama | local (default: auto)")
-    common.add_argument("--model", default=None, help="model name override")
-    common.add_argument("--home", default=None, help="state directory (default: $APEX_HOME or ~/.apex)")
-    common.add_argument("--workspace", default=None, help="directory file tools may access (default: cwd)")
+    # Shared options are accepted both before and after the subcommand
+    # (`apex --provider ollama chat` and `apex chat --provider ollama`).
+    # SUPPRESS keeps a subparser from clobbering a value given at the root;
+    # real defaults are applied once, in main().
+    common = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
+    common.add_argument("--provider", help="auto | anthropic | openai | ollama | local (default: auto)")
+    common.add_argument("--model", help="model name override")
+    common.add_argument("--home", help="state directory (default: $APEX_HOME or ~/.apex)")
+    common.add_argument("--workspace", help="directory file tools may access (default: cwd)")
     common.add_argument("--allow-shell", action="store_true", help="enable the run_command tool (approval-gated)")
     common.add_argument("--yes", "-y", action="store_true", help="auto-approve L3 actions (L4 is always blocked)")
-    common.add_argument("--max-steps", type=int, default=10)
+    common.add_argument("--max-steps", type=int)
 
-    p = argparse.ArgumentParser(prog="apex", description="APEX Life OS — a governed personal AI agent.")
+    p = argparse.ArgumentParser(prog="apex", parents=[common],
+                                description="APEX Life OS — a governed personal AI agent.")
     p.add_argument("--version", action="version", version=f"apex {apex.__version__}")
     sub = p.add_subparsers(dest="command")
 
@@ -276,9 +288,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
-    if not getattr(args, "fn", None):
-        args = parser.parse_args(["chat", *(argv or sys.argv[1:])])
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(raw)
+    if not getattr(args, "fn", None):  # bare `apex` or only options → chat
+        args = parser.parse_args(["chat", *raw])
+    for key, value in _defaults().items():
+        if not hasattr(args, key):
+            setattr(args, key, value)
     try:
         return args.fn(args)
     except LLMError as exc:

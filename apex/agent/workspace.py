@@ -25,8 +25,14 @@ class Workspace:
     def __init__(self, home: str | Path | None = None, root: str | Path | None = None) -> None:
         self.home = Path(home) if home else default_home()
         self.root = Path(root).resolve() if root else Path.cwd().resolve()
-        self.home.mkdir(parents=True, exist_ok=True)
-        (self.home / "sessions").mkdir(exist_ok=True)
+        created = not self.home.exists()
+        self.home.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if created:
+            # mkdir's mode is masked by umask and skipped for parents; be explicit.
+            # State holds memories and conversations: owner-only, so files inside
+            # are unreachable by other local accounts whatever their own mode.
+            os.chmod(self.home, 0o700)
+        (self.home / "sessions").mkdir(mode=0o700, exist_ok=True)
 
     @property
     def audit_path(self) -> Path:
