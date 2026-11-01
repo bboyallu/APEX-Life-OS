@@ -1,5 +1,66 @@
 # APEX Life OS
 
+A **governed personal AI agent** — chat with it, give it tools, let it remember — where every action is risk-scored, human-gated when it matters, and written to a tamper-evident audit ledger. Built on the APEX self-evolving-AI blueprint (MAPE-K loop, neuro-symbolic verification, autonomic thresholds).
+
+## Get started in 60 seconds
+
+```bash
+pip install .            # Python 3.11+
+apex chat                # works immediately, no API key needed (offline mode)
+```
+
+Unlock full natural-language reasoning with any backend:
+
+```bash
+export ANTHROPIC_API_KEY=...        # Claude
+export OPENAI_API_KEY=...           # OpenAI
+apex --provider ollama chat         # local models via Ollama (no key)
+# OPENAI_BASE_URL=... works with LM Studio, vLLM, OpenRouter, etc.
+```
+
+```bash
+apex ask "what is 18% of 2450?"                 # one-shot
+echo "summarise README.md" | apex ask -         # stdin
+apex ask --json "add task call mum"             # machine-readable
+apex memory list | search | add | forget        # long-term memory
+apex tasks                                      # your to-do list
+apex audit --verify                             # prove the log wasn't tampered with
+apex doctor                                     # diagnose configuration
+```
+
+Or with Docker: `docker build -t apex . && docker run -it -v apex-data:/data apex`.
+
+### What the agent can do
+
+| Tool | Risk level | Notes |
+|---|---|---|
+| `calculate`, `current_time`, `system_status`, `recall`, `list_tasks`, `list_dir`, `read_file` | L0 | read-only, autonomous |
+| `remember`, `add_task`, `complete_task` | L0–L1 | logged |
+| `forget` | L1 | partially reversible |
+| `write_file` | L2 | allowed, flagged for notification, audit-logged |
+| `run_command` (`--allow-shell`) | L3 | **asks you every time**; dangerous commands (`sudo`, `rm -rf /`, `curl \| sh`…) are blocked outright |
+
+File tools are sandboxed to `--workspace` (default: current directory), including symlink escapes. State lives in `~/.apex` (`$APEX_HOME`): `MEMORY.md`, `USER.md`, `tasks.json`, `audit.jsonl`, `sessions/`.
+
+### Safety model
+
+Each tool call becomes an `AdaptationPlan`, is scored by `RiskScorer`, and evaluated by the `AutonomicThresholdEngine`: L0–L1 run autonomously, L2 runs with notification, **L3 needs your approval** (denied when non-interactive; `--yes` pre-approves L3), **L4 is always blocked**. The dead-man switch suspends L3 when no human is present. Tool output is treated as data — the system prompt tells the model never to follow instructions found inside files or memories.
+
+### Embedding in Python
+
+```python
+from apex.agent import Agent, create_provider
+
+agent = Agent.create(create_provider("auto"), approver=lambda req: input(f"allow {req.tool}? ") == "y")
+print(agent.run("Remember that my sister's birthday is 3 March").text)
+```
+
+Add your own tool with `agent.tools.register(Tool(name, description, json_schema, handler, reversibility=..., blast_radius=(...)))` — it is governed automatically.
+
+---
+
+## The APEX framework underneath
+
 A **self-evolving AI system** reference implementation built on the APEX blueprint.  
 APEX continuously monitors its own performance, reasons about its limitations, proposes structural or behavioural changes, and enacts those changes — all while remaining bounded by safety constraints and human oversight.
 
@@ -42,6 +103,8 @@ APEX continuously monitors its own performance, reasons about its limitations, p
 | `apex.alerts` | `AlertChannels` (voice/push/SMS/email), `AlertSystem`, approval API |
 | `apex.memory` | Pluggable long-term memory: `MemoryProvider`, built-in `MEMORY.md`/`USER.md` store, provider registry |
 | `apex.governance` | `SafetyConstraintRegistry` (immutable core), `AuditLedger` |
+| `apex.agent` | The user-facing agent: LLM providers, governed tools, `Agent` loop, workspace |
+| `apex.cli` | `apex` command-line interface |
 | `apex.system` | `ApexSystem` — top-level façade wiring everything together |
 
 ---
@@ -243,6 +306,7 @@ tests/
   test_memory.py
   test_governance.py
   test_system.py
+  test_agent.py
 ```
 
 ---

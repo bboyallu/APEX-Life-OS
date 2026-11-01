@@ -14,7 +14,7 @@ Blueprint, including:
 from apex.core import KnowledgeBase
 from apex.system import ApexSystem
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "ApexSystem",

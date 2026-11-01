@@ -10,8 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -49,12 +50,71 @@ class AuditLedger:
 
     Thread-safe.  Verifying the chain with ``verify_chain()`` detects any
     tampering or insertion.
+
+    Parameters
+    ----------
+    path:
+        Optional JSON-lines file.  When given, existing entries are loaded on
+        construction and every new entry is appended (and flushed) to it, so
+        the ledger survives process restarts.  Tampering with the file is
+        detected by ``verify_chain()``.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, path: str | Path | None = None) -> None:
         self._lock = threading.Lock()
         self._entries: list[AuditEntry] = []
         self._genesis_hash = "0" * 64  # sentinel for the first entry
+        self._path = Path(path) if path else None
+        if self._path is not None:
+            self._load()
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def _load(self) -> None:
+        assert self._path is not None
+        if not self._path.exists():
+            return
+        for lineno, line in enumerate(
+            self._path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if not line.strip():
+                continue
+            try:
+                raw = json.loads(line)
+                self._entries.append(
+                    AuditEntry(
+                        entry_id=raw["entry_id"],
+                        timestamp=datetime.fromisoformat(raw["timestamp"]),
+                        event_type=raw["event_type"],
+                        actor=raw["actor"],
+                        payload=raw["payload"],
+                        signature=raw["signature"],
+                        previous_hash=raw["previous_hash"],
+                    )
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                raise ValueError(
+                    f"Corrupt audit ledger {self._path} at line {lineno}: {exc}"
+                ) from exc
+
+    def _persist(self, entry: AuditEntry) -> None:
+        if self._path is None:
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "entry_id": entry.entry_id,
+            "timestamp": entry.timestamp.isoformat(),
+            "event_type": entry.event_type,
+            "actor": entry.actor,
+            "payload": entry.payload,
+            "signature": entry.signature,
+            "previous_hash": entry.previous_hash,
+        }
+        with self._path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+            fh.flush()
 
     # ------------------------------------------------------------------
     # Appending
@@ -90,6 +150,7 @@ class AuditLedger:
                 previous_hash=prev_hash,
             )
             self._entries.append(entry)
+            self._persist(entry)
         return entry
 
     # ------------------------------------------------------------------
